@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [devHint, setDevHint] = useState("");
+  const [devOtp, setDevOtp] = useState("");
 
   const handlePassword = async () => {
     setError("");
@@ -30,6 +31,10 @@ export default function LoginPage() {
       setSessionId(res.session_id);
       setRequiresPuf(res.requires_puf);
       setDevHint(res.message);
+      if (res.dev_otp) {
+        setDevOtp(res.dev_otp);
+        setOtp(res.dev_otp);
+      }
       setStep(1);
     } catch (e) {
       setError(e instanceof ApiError ? String(e.message) : "Login failed");
@@ -107,9 +112,16 @@ export default function LoginPage() {
               </div>
             )}
 
-            {devHint && step === 1 && (
+            {devOtp && step === 1 && (
+              <div className="mt-4 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-4 py-3 text-center">
+                <p className="text-xs text-[var(--muted)]">Dev mode OTP (WhatsApp not configured)</p>
+                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-[var(--primary)]">{devOtp}</p>
+              </div>
+            )}
+
+            {devHint && step === 1 && !devOtp && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                {devHint} — check backend terminal for OTP in dev mode.
+                {devHint}
               </div>
             )}
 

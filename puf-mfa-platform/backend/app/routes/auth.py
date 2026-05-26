@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.database import AuthLog, AuthSession, PufDevice, User
+from app.config import settings
 from app.deps import CurrentUser, DbSession
 from app.services.auth_service import (
     create_token_pair,
@@ -14,7 +15,7 @@ from app.services.auth_service import (
 )
 from app.services.event_bus import auth_events
 from app.services.otp_service import generate_otp, hash_otp, send_whatsapp_otp, verify_otp
-from app.services.puf_service import enroll_puf, read_puf, verify_puf_response
+from app.services.puf_service import enroll_puf, derive_session_key, read_puf, verify_puf_response
 
 router = APIRouter()
 
@@ -52,12 +53,15 @@ def _session_expired(session: AuthSession) -> bool:
     return datetime.utcnow() > session.created_at + timedelta(minutes=SESSION_TTL_MINUTES)
 
 
-def _complete_login(user: User, session: AuthSession, db: Session) -> dict:
+def _complete_login(user: User, session: AuthSession, db: Session, session_key: str | None = None) -> dict:
     session.used = True
     db.commit()
     tokens = create_token_pair(user.id, user.role)
     _emit("auth_complete", user_id=user.id, email=user.email, role=user.role)
-    return {**tokens, "next_step": "dashboard"}
+    result = {**tokens, "next_step": "dashboard"}
+    if session_key:
+        result["session_key_preview"] = session_key[:16] + "..."
+    return result
 
 
 class SignupRequest(BaseModel):
@@ -167,13 +171,17 @@ def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> 
         delivery="whatsapp" if sent else "dev_console",
     )
 
-    return {
+    response = {
         "session_id": session.id,
-        "message": "WhatsApp OTP sent" if sent else "OTP generated (dev mode — check server logs)",
+        "message": "WhatsApp OTP sent" if sent else "OTP generated (dev mode)",
         "requires_puf": user.puf_enabled,
         "puf_mode": user.puf_mode,
         "next_step": "verify_otp",
+        "delivery": "whatsapp" if sent else "dev",
     }
+    if not sent and settings.app_env == "development":
+        response["dev_otp"] = otp
+    return response
 
 
 @router.post("/login/verify-otp")
@@ -251,7 +259,8 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, db: DbSession)
 
     _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id})
     _emit("auth_step", step="puf", status="success", session_id=session.id)
-    return _complete_login(user, session, db)
+    key = derive_session_key(session.challenge, payload.puf_response, session.nonce)
+    return _complete_login(user, session, db, session_key=key)
 
 
 @router.post("/login/verify-puf-auto")

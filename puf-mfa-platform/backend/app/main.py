@@ -3,14 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.routes import admin, auth, health, users, ws
 
 app = FastAPI(
-    title="PUF-MFA Cybersecurity Platform",
+    title="SecureVault PUF-MFA Platform",
     description="PUF-based Multifactor Authentication for Banking & IoT",
-    version="0.2.0",
+    version="0.3.0",
 )
 
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -35,7 +38,7 @@ def on_startup() -> None:
 def root() -> dict:
     return {
         "name": "SecureVault Bank API",
-        "phase": "4-frontend-integrated",
+        "phase": "3-puf-integrated",
         "docs": "/docs",
         "websocket": "/ws/auth",
         "environment": settings.app_env,

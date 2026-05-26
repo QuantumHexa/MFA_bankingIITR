@@ -44,6 +44,8 @@ export const api = {
       requires_puf: boolean;
       puf_mode: string;
       message: string;
+      delivery?: string;
+      dev_otp?: string;
     }>("/api/auth/login/start", { method: "POST", body: JSON.stringify({ email, password }) }),
 
   verifyOtp: (session_id: string, otp: string) =>
@@ -79,6 +81,17 @@ export const api = {
 
   adminLogs: (token: string) =>
     request<{ total: number; logs: AdminLog[] }>("/api/admin/auth-logs?limit=50", {}, token),
+
+  adminAnalytics: (token: string) =>
+    request<AdminAnalytics>("/api/admin/analytics", {}, token),
+
+  adminPufStatus: (token: string) =>
+    request<PufStatus>("/api/admin/puf-status", {}, token),
+
+  attackDemo: (token: string, type: "password-only" | "replay" | "clone", body: { email?: string; session_id?: string }) =>
+    request<AttackResult>(`/api/admin/attack-demo/${type}`, { method: "POST", body: JSON.stringify(body) }, token),
+
+  exportLogsUrl: () => `${API_URL}/api/admin/auth-logs/export`,
 };
 
 export type UserProfile = {
@@ -126,4 +139,24 @@ export type AdminLog = {
   factor: string;
   status: string;
   created_at: string;
+};
+
+export type AttackResult = {
+  attack: string;
+  result: string;
+  explanation: string;
+};
+
+export type AdminAnalytics = {
+  factor_usage: Record<string, number>;
+  hourly_events: Record<string, number>;
+  success_count: number;
+  failed_count: number;
+  total_24h: number;
+};
+
+export type PufStatus = {
+  virtual: { online: boolean; host: string; port: number; error: string };
+  hardware: { online: boolean; port: string; baud: number; error: string };
+  twilio_configured: boolean;
 };
