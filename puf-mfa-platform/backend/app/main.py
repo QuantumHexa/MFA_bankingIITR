@@ -1,0 +1,42 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import settings
+from app.database import init_db
+from app.routes import admin, auth, health, users, ws
+
+app = FastAPI(
+    title="PUF-MFA Cybersecurity Platform",
+    description="PUF-based Multifactor Authentication for Banking & IoT",
+    version="0.2.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router, tags=["Health"])
+app.include_router(ws.router, tags=["WebSocket"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    init_db()
+
+
+@app.get("/")
+def root() -> dict:
+    return {
+        "name": "SecureVault Bank API",
+        "phase": "4-frontend-integrated",
+        "docs": "/docs",
+        "websocket": "/ws/auth",
+        "environment": settings.app_env,
+    }

@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #0c2d57;
+  --primary-light: #1a4480;
+  --accent: #c9a227;
+  --accent-soft: #f5ecd3;
+  --border: #e2e8f0;
+  --success: #059669;
+}
+
+.dark {
+  --bg: #071525;
+  --surface: #0f2137;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --primary: #1e4976;
+  --primary-light: #2d6cb5;
+  --accent: #d4af37;
+  --accent-soft: #2a2418;
+  --border: #1e3a5f;
+  --success: #34d399;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+}
+
+@layer components {
+  .bank-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 24px rgba(12, 45, 87, 0.06);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white transition-all;
+    background: var(--primary);
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-light);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(12, 45, 87, 0.2);
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-6 py-3 text-sm font-semibold transition-all;
+    border-color: var(--border);
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .btn-outline:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all;
+    color: var(--muted);
+  }
+
+  .btn-ghost:hover {
+    color: var(--primary);
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-all;
+    background: var(--accent);
+    color: #1a1508;
+  }
+
+  .btn-gold:hover {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+  }
+
+  .input-field {
+    @apply w-full rounded-lg px-4 py-3 text-sm outline-none transition-all;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .input-field:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(12, 45, 87, 0.1);
+  }
+
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest;
+    color: var(--accent);
+  }
+}
