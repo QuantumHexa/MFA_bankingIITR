@@ -64,9 +64,9 @@ export default function DashboardPage() {
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-[var(--muted)]">Welcome back</p>
-            <h1 className="text-2xl font-bold text-[var(--primary)]">{user.full_name}</h1>
-            <p className="text-sm text-[var(--muted)]">{user.email}</p>
+            <p className="text-sm text-[var(--muted)]">Welcome</p>
+            <h1 className="text-2xl font-bold text-[var(--primary)]">Hello, {user.full_name}</h1>
+            <p className="text-sm text-[var(--muted)]">@{user.username || user.email}</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="rounded-full border border-[var(--success)]/30 bg-[var(--success)]/10 px-3 py-1 text-xs font-medium text-[var(--success)]">
@@ -82,14 +82,15 @@ export default function DashboardPage() {
           <div className="bank-card rounded-2xl p-6 lg:col-span-2">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-[var(--muted)]">Available Balance</p>
-                <p className="mt-1 text-3xl font-bold">₹ 1,24,580.00</p>
+                <p className="text-sm text-[var(--muted)]">Your Account Balance</p>
+                <p className="mt-1 text-3xl font-bold">₹ {(user.balance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                {user.account_number && <p className="mt-1 text-xs text-[var(--muted)]">Account No: {user.account_number}</p>}
               </div>
               <Wallet className="h-7 w-7 text-[var(--primary)]" />
             </div>
             <div className="mt-6 flex gap-3">
               <button className="btn-primary text-sm">Transfer</button>
-              <button className="btn-outline text-sm">Pay Bills</button>
+              <button className="btn-outline text-sm">Add Money</button>
             </div>
           </div>
 

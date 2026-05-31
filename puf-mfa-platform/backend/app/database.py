@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from app.config import settings
@@ -15,9 +15,13 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username: Mapped[str | None] = mapped_column(String(100), unique=True, index=True, nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     phone: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(255))
+    dob: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    account_number: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    initial_deposit: Mapped[float] = mapped_column(Float, default=0.0)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="user")
     puf_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -38,6 +42,7 @@ class PufDevice(Base):
     enrolled_response: Mapped[str] = mapped_column(Text)
     reliability_mask: Mapped[str | None] = mapped_column(Text, nullable=True)
     challenge_seed: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    secret_identifier: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="devices")
@@ -84,14 +89,30 @@ def seed_admin() -> None:
     try:
         existing = db.query(User).filter(User.role == "admin").first()
         if existing:
+            updated = False
             if existing.email != settings.admin_email:
                 existing.email = settings.admin_email
+                updated = True
+            if not existing.username:
+                existing.username = "admin"
+                updated = True
+            if not existing.account_number:
+                existing.account_number = "100000000001"
+                updated = True
+            if existing.dob is None:
+                existing.dob = "1990-01-01"
+                updated = True
+            if updated:
                 db.commit()
             return
         admin = User(
+            username="admin",
             email=settings.admin_email,
             phone="9999999999",
             full_name="Platform Admin",
+            dob="1990-01-01",
+            account_number="100000000001",
+            initial_deposit=0.0,
             password_hash=hash_password(settings.admin_password),
             role="admin",
             puf_enabled=False,
@@ -105,4 +126,28 @@ def seed_admin() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        _ensure_sqlite_columns()
     seed_admin()
+
+
+def _ensure_sqlite_columns() -> None:
+    db = SessionLocal()
+    try:
+        user_cols = {row[1] for row in db.execute(text("PRAGMA table_info(users)")).fetchall()}
+        if "username" not in user_cols:
+            db.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(100)"))
+        if "dob" not in user_cols:
+            db.execute(text("ALTER TABLE users ADD COLUMN dob VARCHAR(20)"))
+        if "account_number" not in user_cols:
+            db.execute(text("ALTER TABLE users ADD COLUMN account_number VARCHAR(20)"))
+        if "initial_deposit" not in user_cols:
+            db.execute(text("ALTER TABLE users ADD COLUMN initial_deposit FLOAT DEFAULT 0"))
+
+        puf_cols = {row[1] for row in db.execute(text("PRAGMA table_info(puf_devices)")).fetchall()}
+        if "secret_identifier" not in puf_cols:
+            db.execute(text("ALTER TABLE puf_devices ADD COLUMN secret_identifier VARCHAR(32)"))
+
+        db.commit()
+    finally:
+        db.close()

@@ -21,17 +21,17 @@ def hash_otp(otp: str) -> str:
     return hash_password(otp)
 
 
-def send_whatsapp_otp(phone: str, otp: str) -> bool:
-    """Send OTP via Twilio WhatsApp. Falls back to console log in dev."""
+def send_whatsapp_otp(phone: str, otp: str) -> None:
+    """Send OTP via Twilio WhatsApp. Raises if Twilio is not configured or send fails."""
     message = (
-        f"Your PUF-MFA Bank verification code is *{otp}*. "
+        f"Your SecureVault Bank verification code is *{otp}*. "
         f"Valid for {settings.otp_expire_minutes} minutes. Do not share this code."
     )
 
     if not settings.twilio_account_sid or not settings.twilio_auth_token:
-        logger.warning("[DEV OTP] Phone +91%s -> %s", phone, otp)
-        print(f"\n[WHATSAPP OTP DEV] +91{phone}: {otp}\n")
-        return False
+        raise RuntimeError(
+            "Twilio WhatsApp is not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in backend/.env"
+        )
 
     try:
         from twilio.rest import Client
@@ -42,8 +42,7 @@ def send_whatsapp_otp(phone: str, otp: str) -> bool:
             body=message,
             to=f"whatsapp:+91{phone}",
         )
-        return True
+        logger.info("WhatsApp OTP sent to +91%s", phone)
     except Exception as exc:
         logger.error("WhatsApp OTP failed: %s", exc)
-        print(f"\n[WHATSAPP OTP FALLBACK] +91{phone}: {otp}\n")
-        return False
+        raise RuntimeError(f"WhatsApp OTP delivery failed: {exc}") from exc

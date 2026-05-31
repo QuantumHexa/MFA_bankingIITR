@@ -21,21 +21,19 @@ cd puf-mfa-platform
 
 ## WhatsApp OTP
 
-### Dev mode (default)
-Twilio is **not required**. On login, the OTP appears **on screen** and in the backend terminal.
+OTP is sent via **Twilio WhatsApp** only (no dev mode).
 
-### Production (Twilio)
-1. Create account at [Twilio Console](https://console.twilio.com)
-2. Join **WhatsApp Sandbox** (Messaging → Try WhatsApp)
-3. Add to `backend/.env`:
+**Full setup guide:** [TWILIO_SETUP.md](./TWILIO_SETUP.md)
 
-```env
-TWILIO_ACCOUNT_SID=ACxxxxxxxx
-TWILIO_AUTH_TOKEN=your_token
-TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
-```
-
-4. Restart backend. Sign up with 10-digit phone (e.g. `9876543210`).
+Quick steps:
+1. Create Twilio account → join WhatsApp sandbox from your phone
+2. Add credentials to `backend/.env`:
+   ```env
+   TWILIO_ACCOUNT_SID=ACxxxxxxxx
+   TWILIO_AUTH_TOKEN=your_token
+   TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+   ```
+3. Restart backend · Sign up with your 10-digit phone (same number as sandbox)
 
 ---
 

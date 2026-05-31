@@ -36,9 +36,13 @@ def update_puf_settings(payload: PufToggleRequest, db: DbSession, user: CurrentU
 def get_profile(user: CurrentUser) -> dict:
     return {
         "id": user.id,
+        "username": user.username,
         "email": user.email,
         "phone": user.phone,
         "full_name": user.full_name,
+        "dob": user.dob,
+        "account_number": user.account_number,
+        "balance": user.initial_deposit,
         "puf_enabled": user.puf_enabled,
         "puf_mode": user.puf_mode,
         "role": user.role,

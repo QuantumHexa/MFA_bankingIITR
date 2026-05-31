@@ -151,11 +151,11 @@ export default function AdminPage() {
             </div>
             <div className="bank-card rounded-xl p-4">
               <p className="text-xs text-[var(--muted)]">WhatsApp OTP</p>
-              <p className={`mt-1 font-semibold ${pufStatus.twilio_configured ? "text-[var(--success)]" : "text-amber-600"}`}>
-                {pufStatus.twilio_configured ? "Twilio active" : "Dev mode"}
+              <p className={`mt-1 font-semibold ${pufStatus.twilio_configured ? "text-[var(--success)]" : "text-red-500"}`}>
+                {pufStatus.twilio_configured ? "Twilio active" : "Not configured"}
               </p>
               <p className="text-xs text-[var(--muted)]">
-                {pufStatus.twilio_configured ? "OTP via WhatsApp" : "OTP shown on login screen"}
+                {pufStatus.twilio_configured ? "OTP via WhatsApp" : "Add Twilio credentials to backend/.env"}
               </p>
             </div>
           </div>

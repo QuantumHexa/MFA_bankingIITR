@@ -1,3 +1,5 @@
+import hashlib
+import random
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
@@ -5,7 +7,6 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.database import AuthLog, AuthSession, PufDevice, User
-from app.config import settings
 from app.deps import CurrentUser, DbSession
 from app.services.auth_service import (
     create_token_pair,
@@ -15,7 +16,13 @@ from app.services.auth_service import (
 )
 from app.services.event_bus import auth_events
 from app.services.otp_service import generate_otp, hash_otp, send_whatsapp_otp, verify_otp
-from app.services.puf_service import enroll_puf, derive_session_key, read_puf, verify_puf_response
+from app.services.puf_service import (
+    derive_secret_identifier,
+    derive_session_key,
+    enroll_puf,
+    puf_verification_details,
+    read_puf,
+)
 
 router = APIRouter()
 
@@ -65,16 +72,20 @@ def _complete_login(user: User, session: AuthSession, db: Session, session_key: 
 
 
 class SignupRequest(BaseModel):
+    username: str = Field(..., min_length=4, max_length=30, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr
     phone: str = Field(..., pattern=r"^\d{10}$")
     full_name: str = Field(..., min_length=2, max_length=100)
+    dob: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    initial_deposit: float = Field(default=0.0, ge=0)
+    netbanking_enabled: bool = True
     password: str = Field(..., min_length=8)
     puf_enabled: bool = False
     puf_mode: str = Field(default="virtual", pattern=r"^(virtual|hardware|off)$")
 
 
 class LoginStartRequest(BaseModel):
-    email: EmailStr
+    username: str = Field(..., min_length=3, max_length=100)
     password: str
 
 
@@ -96,15 +107,43 @@ class PufEnrollRequest(BaseModel):
     mode: str = Field(default="virtual", pattern=r"^(virtual|hardware)$")
 
 
+class PufPreviewRequest(BaseModel):
+    mode: str = Field(default="virtual", pattern=r"^(virtual|hardware)$")
+
+
+def _generate_account_number(payload: SignupRequest) -> str:
+    # Blend user profile fields + randomness into a 12-digit account number.
+    raw = (
+        f"{payload.full_name}|{payload.dob}|{payload.phone}|"
+        f"{payload.email}|{payload.username}|{payload.puf_mode}|{random.random()}"
+    )
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    digits = str(int(digest[:12], 16))
+    return digits[:12].rjust(12, "0")
+
+
 @router.post("/signup")
 def signup(payload: SignupRequest, request: Request, db: DbSession) -> dict:
-    if db.query(User).filter((User.email == payload.email) | (User.phone == payload.phone)).first():
-        raise HTTPException(status_code=400, detail="Email or phone already registered")
+    if db.query(User).filter(
+        (User.email == payload.email) | (User.phone == payload.phone) | (User.username == payload.username)
+    ).first():
+        raise HTTPException(status_code=400, detail="Email, phone, or username already registered")
+
+    if not payload.netbanking_enabled:
+        raise HTTPException(status_code=400, detail="Netbanking must be enabled for this platform")
+
+    account_number = _generate_account_number(payload)
+    while db.query(User).filter(User.account_number == account_number).first():
+        account_number = _generate_account_number(payload)
 
     user = User(
+        username=payload.username,
         email=payload.email,
         phone=payload.phone,
         full_name=payload.full_name,
+        dob=payload.dob,
+        account_number=account_number,
+        initial_deposit=payload.initial_deposit,
         password_hash=hash_password(payload.password),
         puf_enabled=payload.puf_enabled and payload.puf_mode != "off",
         puf_mode="off" if not payload.puf_enabled else payload.puf_mode,
@@ -123,6 +162,13 @@ def signup(payload: SignupRequest, request: Request, db: DbSession) -> dict:
     return {
         "message": "Account created.",
         "user_id": user.id,
+        "account_number": user.account_number,
+        "initial_deposit": user.initial_deposit,
+        "mfa_note": (
+            f"You have enabled MFA with {user.puf_mode} PUF"
+            if user.puf_enabled
+            else "MFA is disabled for this account"
+        ),
         "puf_enabled": user.puf_enabled,
         "puf_enrollment": enroll_result,
     }
@@ -130,10 +176,12 @@ def signup(payload: SignupRequest, request: Request, db: DbSession) -> dict:
 
 @router.post("/login/start")
 def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> dict:
-    user = db.query(User).filter(User.email == payload.email, User.is_active.is_(True)).first()
+    user = db.query(User).filter(
+        ((User.username == payload.username) | (User.email == payload.username)), User.is_active.is_(True)
+    ).first()
     if not user or not verify_password(payload.password, user.password_hash):
         _log_auth(db, user.id if user else None, "login", "password", "failed", request)
-        _emit("auth_step", step="password", status="failed", email=payload.email)
+        _emit("auth_step", step="password", status="failed", username=payload.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     session = AuthSession(
@@ -151,9 +199,14 @@ def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> 
     session.otp_hash = hash_otp(otp)
     db.commit()
 
-    sent = send_whatsapp_otp(user.phone, otp)
+    try:
+        send_whatsapp_otp(user.phone, otp)
+    except RuntimeError as exc:
+        _log_auth(db, user.id, "otp_sent", "whatsapp", "failed", request, {"error": str(exc)})
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     _log_auth(db, user.id, "login", "password", "success", request)
-    _log_auth(db, user.id, "otp_sent", "whatsapp", "success" if sent else "simulated", request)
+    _log_auth(db, user.id, "otp_sent", "whatsapp", "success", request)
     _emit(
         "auth_step",
         step="password",
@@ -168,20 +221,17 @@ def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> 
         status="pending",
         session_id=session.id,
         user_id=user.id,
-        delivery="whatsapp" if sent else "dev_console",
+        delivery="whatsapp",
     )
 
-    response = {
+    return {
         "session_id": session.id,
-        "message": "WhatsApp OTP sent" if sent else "OTP generated (dev mode)",
+        "message": f"OTP sent to WhatsApp ending in {user.phone[-4:]}",
         "requires_puf": user.puf_enabled,
         "puf_mode": user.puf_mode,
         "next_step": "verify_otp",
-        "delivery": "whatsapp" if sent else "dev",
+        "delivery": "whatsapp",
     }
-    if not sent and settings.app_env == "development":
-        response["dev_otp"] = otp
-    return response
 
 
 @router.post("/login/verify-otp")
@@ -245,7 +295,7 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, db: DbSession)
     if not device:
         raise HTTPException(status_code=400, detail="No PUF device enrolled")
 
-    ok = verify_puf_response(
+    ok, hamming_distance, reference = puf_verification_details(
         session.challenge,
         payload.puf_response,
         device.enrolled_response,
@@ -260,7 +310,87 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, db: DbSession)
     _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id})
     _emit("auth_step", step="puf", status="success", session_id=session.id)
     key = derive_session_key(session.challenge, payload.puf_response, session.nonce)
-    return _complete_login(user, session, db, session_key=key)
+    result = _complete_login(user, session, db, session_key=key)
+    result["puf_verification"] = {
+        "verified": True,
+        "puf_mode": user.puf_mode,
+        "device_label": device.device_label,
+        "challenge": session.challenge,
+        "puf_response": payload.puf_response,
+        "reference_response": reference,
+        "hamming_distance": hamming_distance,
+        "session_key": key,
+        "nonce": session.nonce,
+    }
+    return result
+
+
+@router.post("/login/puf-read")
+def login_puf_read(payload: OtpVerifyRequest, db: DbSession) -> dict:
+    """Read PUF response from bridge for demo — shows challenge/response before verify."""
+    session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
+    if not session or _session_expired(session):
+        raise HTTPException(status_code=400, detail="Invalid or expired session")
+
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user or not user.puf_enabled:
+        raise HTTPException(status_code=400, detail="PUF not required")
+
+    device = db.query(PufDevice).filter_by(user_id=user.id).first()
+    if not device:
+        raise HTTPException(status_code=400, detail="No PUF device enrolled")
+
+    try:
+        response = read_puf(session.challenge, user.puf_mode)
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"PUF bridge unavailable: {exc}") from exc
+
+    if not response:
+        raise HTTPException(status_code=503, detail="PUF bridge unavailable — start virtual_puf_server.py")
+
+    session_key = derive_session_key(session.challenge, response, session.nonce)
+    ok, hamming_distance, reference = puf_verification_details(
+        session.challenge,
+        response,
+        device.enrolled_response,
+        device.reliability_mask,
+        user.puf_mode,
+    )
+
+    return {
+        "session_id": session.id,
+        "puf_mode": user.puf_mode,
+        "device_label": device.device_label,
+        "secret_identifier": device.secret_identifier or derive_secret_identifier(response, user.puf_mode),
+        "challenge": session.challenge,
+        "nonce": session.nonce,
+        "puf_response": response,
+        "reference_response": reference,
+        "hamming_distance": hamming_distance,
+        "will_verify": ok,
+        "session_key": session_key,
+        "message": "PUF response read from virtual device bridge",
+    }
+
+
+@router.post("/signup/puf-preview")
+def signup_puf_preview(payload: PufPreviewRequest) -> dict:
+    """Preview PUF read + identifier before signup completion."""
+    challenge = generate_nonce(32)
+    try:
+        response = read_puf(challenge, payload.mode)
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"PUF bridge unavailable: {exc}") from exc
+
+    if not response:
+        raise HTTPException(status_code=503, detail="PUF bridge unavailable — start virtual_puf_server.py")
+
+    return {
+        "mode": payload.mode,
+        "challenge": challenge,
+        "puf_response": response,
+        "secret_identifier": derive_secret_identifier(response, payload.mode),
+    }
 
 
 @router.post("/login/verify-puf-auto")
@@ -310,9 +440,13 @@ def puf_enroll(payload: PufEnrollRequest, request: Request, db: DbSession, user:
 def get_me(user: CurrentUser) -> dict:
     return {
         "id": user.id,
+        "username": user.username,
         "email": user.email,
         "phone": user.phone,
         "full_name": user.full_name,
+        "dob": user.dob,
+        "account_number": user.account_number,
+        "balance": user.initial_deposit,
         "role": user.role,
         "puf_enabled": user.puf_enabled,
         "puf_mode": user.puf_mode,

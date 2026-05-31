@@ -9,8 +9,6 @@ from app.config import settings
 from app.database import PufDevice, User
 
 ENROLL_SAMPLES = 5
-
-
 def _hamming_hex(a: str, b: str) -> int:
     width = max(len(a), len(b))
     x = int(a.ljust(width, "0"), 16) ^ int(b.ljust(width, "0"), 16)
@@ -101,19 +99,39 @@ def verify_puf_response(
     mask: str | None = None,
     mode: str = "virtual",
 ) -> bool:
+    ok, _distance, _reference = puf_verification_details(challenge, response, enrolled, mask, mode)
+    return ok
+
+
+def puf_verification_details(
+    challenge: str,
+    response: str,
+    enrolled: str,
+    mask: str | None = None,
+    mode: str = "virtual",
+) -> tuple[bool, int, str]:
+    """Return (verified, hamming_distance, reference_response)."""
     if mode == "virtual":
         expected = read_puf(challenge, mode)
         if expected:
-            return _hamming_hex(expected, response) <= settings.puf_hamming_threshold
+            distance = _hamming_hex(expected, response)
+            return distance <= settings.puf_hamming_threshold, distance, expected
 
     distance = _hamming_masked(response, enrolled, mask)
-    return distance <= settings.puf_hamming_threshold
+    return distance <= settings.puf_hamming_threshold, distance, enrolled
 
 
 def derive_session_key(challenge: str, response: str, nonce: str) -> str:
     """Lightweight session key from verified PUF material (SHA-256/HMAC)."""
     material = f"{challenge}:{response}:{nonce}".encode()
     return hmac.new(settings.secret_key.encode(), material, hashlib.sha256).hexdigest()
+
+
+def derive_secret_identifier(response: str, mode: str) -> str:
+    """Generate a short, stable-looking public identifier for demo UX."""
+    seed = f"{mode}:{response}".encode()
+    digest = hmac.new(settings.secret_key.encode(), seed, hashlib.sha256).hexdigest()[:12].upper()
+    return f"{digest[:4]}-{digest[4:8]}-{digest[8:12]}"
 
 
 def enroll_puf(db: Session, user: User, mode: str) -> dict:
@@ -132,6 +150,7 @@ def enroll_puf(db: Session, user: User, mode: str) -> dict:
     else:
         enrolled = reads[0]
         reliability_mask = None
+    secret_identifier = derive_secret_identifier(enrolled, mode)
 
     device = db.query(PufDevice).filter(PufDevice.user_id == user.id).first()
     label = "CMOD A7 Arbiter PUF" if mode == "hardware" else "Virtual PUF Device"
@@ -140,6 +159,7 @@ def enroll_puf(db: Session, user: User, mode: str) -> dict:
         device.reliability_mask = reliability_mask
         device.challenge_seed = challenge
         device.device_label = label
+        device.secret_identifier = secret_identifier
     else:
         device = PufDevice(
             user_id=user.id,
@@ -147,6 +167,7 @@ def enroll_puf(db: Session, user: User, mode: str) -> dict:
             reliability_mask=reliability_mask,
             challenge_seed=challenge,
             device_label=label,
+            secret_identifier=secret_identifier,
         )
         db.add(device)
 
@@ -160,4 +181,5 @@ def enroll_puf(db: Session, user: User, mode: str) -> dict:
         "response_preview": enrolled[:16] + "...",
         "has_reliability_mask": bool(reliability_mask),
         "samples_used": len(reads),
+        "secret_identifier": secret_identifier,
     }
