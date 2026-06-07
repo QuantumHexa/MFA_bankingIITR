@@ -31,6 +31,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
+  const [resendingOtp, setResendingOtp] = useState(false);
   const [pufData, setPufData] = useState<PufReadResult | null>(null);
   const [pufVerified, setPufVerified] = useState<PufVerification | null>(null);
 
@@ -70,6 +71,19 @@ export default function LoginPage() {
       setError(e instanceof ApiError ? String(e.message) : "Invalid OTP");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setError("");
+    setResendingOtp(true);
+    try {
+      const res = await api.resendOtp(sessionId);
+      setOtpMessage(res.message);
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.message) : "Could not resend OTP");
+    } finally {
+      setResendingOtp(false);
     }
   };
 
@@ -182,6 +196,9 @@ export default function LoginPage() {
                 />
                 <button onClick={handleOtp} disabled={loading || otp.length !== 6} className="btn-primary w-full disabled:opacity-50">
                   {loading ? "Verifying..." : "Verify OTP"}
+                </button>
+                <button onClick={handleResendOtp} disabled={resendingOtp || !sessionId} className="btn-outline w-full disabled:opacity-50">
+                  {resendingOtp ? "Resending..." : "Resend OTP"}
                 </button>
               </div>
             )}

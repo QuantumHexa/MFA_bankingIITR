@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import settings, validate_security_settings
 from app.database import init_db
 from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.routes import admin, auth, health, users, ws
@@ -16,7 +16,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,6 +31,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 @app.on_event("startup")
 def on_startup() -> None:
+    validate_security_settings(settings)
     init_db()
 
 

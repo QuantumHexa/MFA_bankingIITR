@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Cpu, KeyRound, MessageCircle, ShieldCheck } from "lucide-react";
+import { authStore } from "@/lib/auth-store";
 
 type StepStatus = "pending" | "active" | "done" | "failed";
 
@@ -20,7 +21,7 @@ const DEFAULT_STEPS: Step[] = [
   { id: "complete", label: "Access Granted", icon: ShieldCheck, status: "pending", detail: "Pending" },
 ];
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://127.0.0.1:8000/ws/auth";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://localhost/ws/auth";
 
 export function LiveAuthStepper() {
   const [steps, setSteps] = useState<Step[]>(DEFAULT_STEPS);
@@ -29,7 +30,9 @@ export function LiveAuthStepper() {
   useEffect(() => {
     let ws: WebSocket;
     try {
-      ws = new WebSocket(WS_URL);
+      const token = authStore.getToken();
+      const url = token ? `${WS_URL}${WS_URL.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : WS_URL;
+      ws = new WebSocket(url);
     } catch {
       return;
     }

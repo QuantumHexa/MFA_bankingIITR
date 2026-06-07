@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://localhost";
 
 export class ApiError extends Error {
   constructor(
@@ -16,7 +16,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -76,6 +76,12 @@ export const api = {
       refresh_token?: string;
     }>("/api/auth/login/verify-otp", { method: "POST", body: JSON.stringify({ session_id, otp }) }),
 
+  resendOtp: (session_id: string) =>
+    request<{ message: string; session_id: string }>("/api/auth/login/resend-otp", {
+      method: "POST",
+      body: JSON.stringify({ session_id }),
+    }),
+
   verifyPufAuto: (session_id: string) =>
     request<{ access_token: string; refresh_token: string; next_step: string; puf_verification?: PufVerification }>(
       "/api/auth/login/verify-puf-auto",
@@ -94,7 +100,15 @@ export const api = {
       { method: "POST", body: JSON.stringify({ session_id, puf_response }) },
     ),
 
-  me: (token: string) => request<UserProfile>("/api/auth/me", {}, token),
+  me: (token?: string | null) => request<UserProfile>("/api/auth/me", {}, token ?? null),
+
+  refresh: (refreshToken: string) =>
+    request<{ access_token: string; refresh_token: string; token_type: string }>("/api/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
+
+  logout: (token?: string | null) => request<{ message: string }>("/api/auth/logout", { method: "POST" }, token ?? null),
 
   updatePufSettings: (token: string, puf_enabled: boolean, puf_mode: string) =>
     request("/api/users/puf-settings", {

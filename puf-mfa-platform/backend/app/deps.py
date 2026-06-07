@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -36,12 +36,14 @@ def _decode_token(token: str, expected_type: str) -> dict:
 
 def get_current_user(
     db: DbSession,
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
 ) -> User:
-    if not credentials:
+    token = credentials.credentials if credentials else request.cookies.get(settings.access_cookie_name)
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    payload = _decode_token(credentials.credentials, "access")
+    payload = _decode_token(token, "access")
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")

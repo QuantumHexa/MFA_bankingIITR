@@ -57,8 +57,23 @@ class AuthSession(Base):
     challenge: Mapped[str] = mapped_column(String(64))
     otp_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    otp_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    otp_sent_count: Mapped[int] = mapped_column(Integer, default=1)
+    otp_locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    otp_resend_available_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     step: Mapped[str] = mapped_column(String(30), default="password_pending")
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -147,6 +162,16 @@ def _ensure_sqlite_columns() -> None:
         puf_cols = {row[1] for row in db.execute(text("PRAGMA table_info(puf_devices)")).fetchall()}
         if "secret_identifier" not in puf_cols:
             db.execute(text("ALTER TABLE puf_devices ADD COLUMN secret_identifier VARCHAR(32)"))
+
+        auth_session_cols = {row[1] for row in db.execute(text("PRAGMA table_info(auth_sessions)")).fetchall()}
+        if "otp_attempts" not in auth_session_cols:
+            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_attempts INTEGER DEFAULT 0"))
+        if "otp_sent_count" not in auth_session_cols:
+            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_sent_count INTEGER DEFAULT 1"))
+        if "otp_locked_until" not in auth_session_cols:
+            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_locked_until DATETIME"))
+        if "otp_resend_available_at" not in auth_session_cols:
+            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_resend_available_at DATETIME"))
 
         db.commit()
     finally:

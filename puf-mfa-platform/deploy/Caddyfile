@@ -1,0 +1,9 @@
+:443 {
+    tls internal
+    encode gzip
+
+    @backend path /api/* /docs* /openapi.json /ws/*
+    reverse_proxy @backend backend:8000
+
+    reverse_proxy frontend:3000
+}

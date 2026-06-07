@@ -21,15 +21,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const refreshUser = useCallback(async () => {
-    const token = authStore.getToken();
-    if (!token) {
-      setUser(null);
-      return;
-    }
     try {
-      const profile = await api.me(token);
+      const profile = await api.me(authStore.getToken() || "");
       setUser(profile);
     } catch {
+      const refresh = authStore.getRefresh();
+      if (refresh) {
+        try {
+          const rotated = await api.refresh(refresh);
+          authStore.setTokens(rotated.access_token, rotated.refresh_token);
+          const profile = await api.me(authStore.getToken() || "");
+          setUser(profile);
+          return;
+        } catch {
+          // fall through to clear
+        }
+      }
       authStore.clear();
       setUser(null);
     }
@@ -40,11 +47,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshUser]);
 
   const login = async (access: string, refresh: string) => {
-    authStore.setTokens(access, refresh);
+    if (access || refresh) authStore.setTokens(access, refresh);
     await refreshUser();
   };
 
   const logout = () => {
+    api.logout(authStore.getToken() || "").catch(() => {});
     authStore.clear();
     setUser(null);
     router.push("/login");
