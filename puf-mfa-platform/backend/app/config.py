@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     puf_hamming_threshold: int = 5
 
     admin_email: str = "admin@pufbank.dev"
-    admin_password: str = "change-admin-password"
+    admin_password: str = "admin"
 
     otp_max_attempts: int = 5
     otp_lock_minutes: int = 10

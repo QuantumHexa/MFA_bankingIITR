@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://localhost";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export class ApiError extends Error {
   constructor(
@@ -53,10 +53,13 @@ export const api = {
 
   loginStart: (username: string, password: string) =>
     request<{
-      session_id: string;
-      requires_puf: boolean;
-      puf_mode: string;
+      session_id?: string;
+      requires_puf?: boolean;
+      puf_mode?: string;
       message: string;
+      next_step?: string;
+      access_token?: string;
+      refresh_token?: string;
       delivery?: string;
     }>("/api/auth/login/start", { method: "POST", body: JSON.stringify({ username, password }) }),
 
@@ -122,6 +125,20 @@ export const api = {
   adminStats: (token: string) => request<AdminStats>("/api/admin/stats", {}, token),
 
   adminUsers: (token: string) => request<{ total: number; users: AdminUser[] }>("/api/admin/users", {}, token),
+  adminUpdateUser: (
+    token: string,
+    user_id: string,
+    body: {
+      username?: string;
+      email?: string;
+      phone?: string;
+      full_name?: string;
+      password?: string;
+      account_number?: string;
+      balance?: number;
+      is_active?: boolean;
+    },
+  ) => request<{ message: string; user: AdminUser }>(`/api/admin/users/${user_id}`, { method: "PATCH", body: JSON.stringify(body) }, token),
 
   adminLogs: (token: string) =>
     request<{ total: number; logs: AdminLog[] }>("/api/admin/auth-logs?limit=50", {}, token),
@@ -171,8 +188,13 @@ export type AdminStats = {
 
 export type AdminUser = {
   id: string;
+  username?: string;
   email: string;
+  phone?: string;
   full_name: string;
+  dob?: string;
+  account_number?: string;
+  balance?: number;
   role: string;
   puf_enabled: boolean;
   puf_mode: string;

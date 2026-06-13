@@ -227,7 +227,7 @@ def signup(payload: SignupRequest, request: Request, db: DbSession) -> dict:
 
 
 @router.post("/login/start")
-def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> dict:
+def login_start(payload: LoginStartRequest, request: Request, response: Response, db: DbSession) -> dict:
     user = db.query(User).filter(
         ((User.username == payload.username) | (User.email == payload.username)), User.is_active.is_(True)
     ).first()
@@ -250,6 +250,29 @@ def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> 
     db.commit()
     db.refresh(session)
 
+    _log_auth(db, user.id, "login", "password", "success", request)
+    _emit(
+        "auth_step",
+        step="password",
+        status="success",
+        session_id=session.id,
+        user_id=user.id,
+        email=user.email,
+    )
+
+    # Admin convenience mode: password-only login (skip OTP/PUF).
+    if user.role == "admin":
+        session.step = "complete"
+        session.otp_hash = None
+        db.commit()
+        _emit("auth_step", step="admin_bypass", status="success", session_id=session.id, user_id=user.id)
+        result = _complete_login(user, session, db, response)
+        result["message"] = "Admin login successful. OTP skipped."
+        result["requires_puf"] = False
+        result["puf_mode"] = "off"
+        result["delivery"] = "none"
+        return result
+
     otp = generate_otp(6)
     session.otp_hash = hash_otp(otp)
     db.commit()
@@ -260,16 +283,7 @@ def login_start(payload: LoginStartRequest, request: Request, db: DbSession) -> 
         _log_auth(db, user.id, "otp_sent", "whatsapp", "failed", request, {"error": str(exc)})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    _log_auth(db, user.id, "login", "password", "success", request)
     _log_auth(db, user.id, "otp_sent", "whatsapp", "success", request)
-    _emit(
-        "auth_step",
-        step="password",
-        status="success",
-        session_id=session.id,
-        user_id=user.id,
-        email=user.email,
-    )
     _emit(
         "auth_step",
         step="whatsapp_otp",

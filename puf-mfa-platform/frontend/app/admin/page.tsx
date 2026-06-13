@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, Download, Shield, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, Pencil, Shield, Users } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AdminCharts } from "@/components/AdminCharts";
@@ -21,6 +21,20 @@ export default function AdminPage() {
   const [replaySessionId, setReplaySessionId] = useState("");
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [pufStatus, setPufStatus] = useState<PufStatus | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editSuccess, setEditSuccess] = useState("");
+  const [editForm, setEditForm] = useState({
+    username: "",
+    full_name: "",
+    email: "",
+    phone: "",
+    account_number: "",
+    balance: "",
+    password: "",
+    is_active: true,
+  });
 
   const loadData = () => {
     const token = authStore.getToken();
@@ -80,6 +94,50 @@ export default function AdminPage() {
     a.download = "auth_logs.csv";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const startEdit = (u: AdminUser) => {
+    setEditingUser(u);
+    setEditError("");
+    setEditSuccess("");
+    setEditForm({
+      username: u.username || "",
+      full_name: u.full_name || "",
+      email: u.email || "",
+      phone: u.phone || "",
+      account_number: u.account_number || "",
+      balance: String(u.balance ?? 0),
+      password: "",
+      is_active: u.is_active,
+    });
+  };
+
+  const saveUserEdit = async () => {
+    if (!editingUser) return;
+    const token = authStore.getToken();
+    if (!token) return;
+    setEditSaving(true);
+    setEditError("");
+    setEditSuccess("");
+    try {
+      await api.adminUpdateUser(token, editingUser.id, {
+        username: editForm.username.trim() || undefined,
+        full_name: editForm.full_name.trim() || undefined,
+        email: editForm.email.trim() || undefined,
+        phone: editForm.phone.trim() || undefined,
+        account_number: editForm.account_number.trim() || undefined,
+        balance: editForm.balance.trim() ? Number(editForm.balance) : undefined,
+        password: editForm.password.trim() || undefined,
+        is_active: editForm.is_active,
+      });
+      setEditSuccess("User updated successfully.");
+      setEditForm((prev) => ({ ...prev, password: "" }));
+      loadData();
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Failed to update user");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   if (loading || !user || user.role !== "admin") {
@@ -226,14 +284,53 @@ export default function AdminPage() {
                 <div key={u.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
                   <div>
                     <p className="font-medium">{u.full_name}</p>
-                    <p className="text-xs text-[var(--muted)]">{u.email}</p>
+                    <p className="text-xs text-[var(--muted)]">{u.email} • {u.phone}</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      @{u.username || "n/a"} • Acct {u.account_number || "n/a"} • ₹{u.balance ?? 0}
+                    </p>
                   </div>
-                  <span className="text-xs text-[var(--muted)]">
-                    {u.puf_enabled ? `${u.puf_mode} PUF` : "No PUF"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-[var(--muted)]">
+                      {u.puf_enabled ? `${u.puf_mode} PUF` : "No PUF"}
+                    </span>
+                    <button
+                      onClick={() => startEdit(u)}
+                      className="btn-outline flex items-center gap-1 py-1 text-xs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
+            {editingUser && (
+              <div className="mt-4 rounded-xl border border-[var(--border)] p-4">
+                <p className="mb-2 text-sm font-semibold">Edit User: {editingUser.full_name}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input className="input-field text-sm" placeholder="Username" value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} />
+                  <input className="input-field text-sm" placeholder="Full name" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
+                  <input className="input-field text-sm" placeholder="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                  <input className="input-field text-sm" placeholder="Phone (10 digits)" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                  <input className="input-field text-sm" placeholder="Account number" value={editForm.account_number} onChange={(e) => setEditForm({ ...editForm, account_number: e.target.value })} />
+                  <input className="input-field text-sm" placeholder="Balance" type="number" min="0" value={editForm.balance} onChange={(e) => setEditForm({ ...editForm, balance: e.target.value })} />
+                  <input className="input-field text-sm sm:col-span-2" placeholder="New password (optional, min 8 chars)" type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
+                </div>
+                <label className="mt-3 flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={editForm.is_active} onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })} />
+                  User active
+                </label>
+                {editError && <p className="mt-2 text-xs text-red-500">{editError}</p>}
+                {editSuccess && <p className="mt-2 text-xs text-[var(--success)]">{editSuccess}</p>}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={saveUserEdit} disabled={editSaving} className="btn-primary py-2 text-xs">
+                    {editSaving ? "Saving..." : "Save Changes"}
+                  </button>
+                  <button onClick={() => setEditingUser(null)} className="btn-outline py-2 text-xs">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bank-card rounded-2xl p-6">

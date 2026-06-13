@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from app.database import AuthLog, AuthSession, PufDevice, User
 from app.deps import AdminUser, DbSession
+from app.services.auth_service import hash_password
 from app.services.event_bus import auth_events
 from app.services.puf_service import verify_puf_response
 
@@ -114,9 +115,13 @@ def list_users(db: DbSession, _: AdminUser, limit: int = Query(50, le=200), offs
         "users": [
             {
                 "id": u.id,
+                "username": u.username,
                 "email": u.email,
                 "phone": u.phone,
                 "full_name": u.full_name,
+                "dob": u.dob,
+                "account_number": u.account_number,
+                "balance": u.initial_deposit,
                 "role": u.role,
                 "puf_enabled": u.puf_enabled,
                 "puf_mode": u.puf_mode,
@@ -125,6 +130,80 @@ def list_users(db: DbSession, _: AdminUser, limit: int = Query(50, le=200), offs
             }
             for u in users
         ],
+    }
+
+
+class AdminUserUpdateRequest(BaseModel):
+    username: str | None = Field(default=None, min_length=3, max_length=100)
+    email: str | None = None
+    phone: str | None = Field(default=None, pattern=r"^\d{10}$")
+    full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    account_number: str | None = Field(default=None, min_length=8, max_length=20)
+    balance: float | None = Field(default=None, ge=0)
+    is_active: bool | None = None
+
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: str, payload: AdminUserUpdateRequest, db: DbSession, _: AdminUser) -> dict:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if payload.username and payload.username != user.username:
+        exists = db.query(User).filter(User.username == payload.username, User.id != user_id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Username already in use")
+        user.username = payload.username.strip()
+
+    if payload.email and payload.email != user.email:
+        exists = db.query(User).filter(User.email == payload.email, User.id != user_id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        user.email = payload.email.strip().lower()
+
+    if payload.phone and payload.phone != user.phone:
+        exists = db.query(User).filter(User.phone == payload.phone, User.id != user_id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Phone already in use")
+        user.phone = payload.phone.strip()
+
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+
+    if payload.account_number and payload.account_number != user.account_number:
+        exists = db.query(User).filter(User.account_number == payload.account_number, User.id != user_id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="Account number already in use")
+        user.account_number = payload.account_number.strip()
+
+    if payload.balance is not None:
+        user.initial_deposit = float(payload.balance)
+
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+
+    if payload.password:
+        user.password_hash = hash_password(payload.password)
+
+    db.commit()
+    db.refresh(user)
+    return {
+        "message": "User updated successfully",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "phone": user.phone,
+            "full_name": user.full_name,
+            "dob": user.dob,
+            "account_number": user.account_number,
+            "balance": user.initial_deposit,
+            "role": user.role,
+            "puf_enabled": user.puf_enabled,
+            "puf_mode": user.puf_mode,
+            "is_active": user.is_active,
+        },
     }
 
 

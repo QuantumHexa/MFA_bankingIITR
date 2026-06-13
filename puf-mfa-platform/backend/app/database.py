@@ -117,6 +117,9 @@ def seed_admin() -> None:
             if existing.dob is None:
                 existing.dob = "1990-01-01"
                 updated = True
+            # Keep admin password aligned with configured ADMIN_PASSWORD.
+            existing.password_hash = hash_password(settings.admin_password)
+            updated = True
             if updated:
                 db.commit()
             return

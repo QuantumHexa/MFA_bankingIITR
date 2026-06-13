@@ -40,9 +40,14 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await api.loginStart(username, password);
-      setSessionId(res.session_id);
-      setRequiresPuf(res.requires_puf);
-      setPufMode(res.puf_mode);
+      if (res.next_step === "dashboard" && res.access_token) {
+        await login(res.access_token, res.refresh_token || "");
+        router.push("/admin");
+        return;
+      }
+      setSessionId(res.session_id || "");
+      setRequiresPuf(Boolean(res.requires_puf));
+      setPufMode(res.puf_mode || "virtual");
       setOtpMessage(res.message);
       setStep(1);
     } catch (e) {
