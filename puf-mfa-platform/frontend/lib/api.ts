@@ -42,6 +42,7 @@ export const api = {
     password: string;
     puf_enabled: boolean;
     puf_mode: string;
+    site_auth_phrase?: string;
   }) => {
     const encryptedBody = await buildEncryptedSignupBody(API_URL, body);
     return request<{
@@ -55,7 +56,19 @@ export const api = {
     }>("/api/auth/signup", { method: "POST", body: JSON.stringify(encryptedBody) });
   },
 
-  loginStart: (username: string, password: string) =>
+  siteChallenge: (username: string) =>
+    request<{ challenge_id: string; phrase: string; message: string }>("/api/auth/site-challenge", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    }),
+
+  siteChallengeConfirm: (challenge_id: string) =>
+    request<{ ok: boolean; challenge_id: string }>("/api/auth/site-challenge/confirm", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id }),
+    }),
+
+  loginStart: (username: string, password: string, site_challenge_id?: string) =>
     request<{
       session_id?: string;
       requires_puf?: boolean;
@@ -65,7 +78,11 @@ export const api = {
       access_token?: string;
       refresh_token?: string;
       delivery?: string;
-    }>("/api/auth/login/start", { method: "POST", body: JSON.stringify({ username, password }) }),
+      crypto_bundle?: CryptoBundle;
+    }>("/api/auth/login/start", {
+      method: "POST",
+      body: JSON.stringify({ username, password, site_challenge_id }),
+    }),
 
   signupPufPreview: (mode: "virtual" | "hardware") =>
     request<{ mode: string; challenge: string; puf_response: string; secret_identifier: string }>(
@@ -102,7 +119,13 @@ export const api = {
     }),
 
   verifyPuf: (session_id: string, puf_response: string) =>
-    request<{ access_token: string; refresh_token: string; next_step: string; puf_verification?: PufVerification }>(
+    request<{
+      access_token: string;
+      refresh_token: string;
+      next_step: string;
+      puf_verification?: PufVerification;
+      crypto_bundle?: CryptoBundle;
+    }>(
       "/api/auth/login/verify-puf",
       { method: "POST", body: JSON.stringify({ session_id, puf_response }) },
     ),
@@ -113,10 +136,22 @@ export const api = {
       refresh_token: string;
       next_step: string;
       puf_verification?: HardwarePufVerification;
+      crypto_bundle?: CryptoBundle;
     }>("/api/auth/login/verify-puf-hardware", {
       method: "POST",
       body: JSON.stringify({ session_id }),
     }),
+
+  encryptedTransfer: (
+    token: string,
+    body: { crypto_session_id: string; counter: number; iv: string; ciphertext: string },
+  ) =>
+    request<{
+      status: string;
+      message: string;
+      transaction: Record<string, unknown>;
+      next_counter: number;
+    }>("/api/transactions/transfer", { method: "POST", body: JSON.stringify(body) }, token),
 
   me: (token?: string | null) => request<UserProfile>("/api/auth/me", {}, token ?? null),
 
@@ -238,6 +273,16 @@ export type AdminAnalytics = {
   success_count: number;
   failed_count: number;
   total_24h: number;
+};
+
+export type CryptoBundle = {
+  crypto_session_id: string;
+  auth_session_id: string;
+  proof_hex: string;
+  nonce: string;
+  challenge: string;
+  ratchet_counter: number;
+  puf_mode?: string;
 };
 
 export type PufVerification = {

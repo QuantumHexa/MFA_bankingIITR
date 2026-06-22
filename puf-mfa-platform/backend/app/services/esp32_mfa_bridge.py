@@ -319,6 +319,8 @@ def authenticate_device(
             "elapsed_s": round(elapsed, 2),
             "login_id": login_id,
             "customer_id": customer_id,
+            "proof_hex": proof.hex(),
+            "mfa_nonce_hex": nonce.hex(),
         }
     finally:
         ser.close()

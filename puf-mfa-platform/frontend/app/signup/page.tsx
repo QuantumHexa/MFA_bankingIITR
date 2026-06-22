@@ -20,6 +20,7 @@ export default function SignupPage() {
     password: "",
     puf_enabled: false,
     puf_mode: "virtual",
+    site_auth_phrase: "",
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -37,7 +38,10 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await api.signup(form);
+      const res = await api.signup({
+        ...form,
+        site_auth_phrase: form.site_auth_phrase || `${form.username}Auth`,
+      });
       setCreated({
         account_number: res.account_number,
         initial_deposit: res.initial_deposit,
@@ -127,6 +131,21 @@ export default function SignupPage() {
                   <div>
                     <label className="mb-1 block text-sm font-medium">Email</label>
                     <input className="input-field" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-sm font-medium">Site Authentication Text</label>
+                    <input
+                      className="input-field"
+                      required
+                      minLength={4}
+                      maxLength={40}
+                      value={form.site_auth_phrase}
+                      onChange={(e) => setForm({ ...form, site_auth_phrase: e.target.value })}
+                      placeholder="e.g. EmperorAuthentication"
+                    />
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Shown at login so you can verify this is the real SecureVault site (anti-phishing)
+                    </p>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="mb-1 block text-sm font-medium">Initial Deposit Amount</label>

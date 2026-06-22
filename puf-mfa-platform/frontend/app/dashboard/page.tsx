@@ -9,6 +9,12 @@ import { LiveAuthStepper } from "@/components/LiveAuthStepper";
 import { Navbar } from "@/components/Navbar";
 import { ApiError, api, AuthLogEntry } from "@/lib/api";
 import { authStore } from "@/lib/auth-store";
+import {
+  encryptTransaction,
+  getOrDeriveRoot,
+  loadCryptoBundle,
+  nextRatchetCounter,
+} from "@/lib/sessionCrypto";
 
 export default function DashboardPage() {
   const { user, loading, logout, refreshUser } = useAuth();
@@ -19,6 +25,8 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [msgOk, setMsgOk] = useState(true);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferResult, setTransferResult] = useState("");
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -51,6 +59,39 @@ export default function DashboardPage() {
       setMsgOk(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const demoEncryptedTransfer = async () => {
+    const token = authStore.getToken();
+    const bundle = loadCryptoBundle();
+    if (!token || !bundle) {
+      setTransferResult("Complete a PUF login first to establish a ratcheted session key.");
+      return;
+    }
+    setTransferLoading(true);
+    setTransferResult("");
+    try {
+      const root = await getOrDeriveRoot();
+      if (!root) throw new Error("Could not derive session root");
+      const counter = nextRatchetCounter();
+      const encrypted = await encryptTransaction(root, counter, {
+        type: "transfer",
+        amount: 100,
+        currency: "INR",
+        note: "Demo encrypted transaction",
+      });
+      const res = await api.encryptedTransfer(token, {
+        crypto_session_id: bundle.crypto_session_id,
+        counter: encrypted.counter,
+        iv: encrypted.iv,
+        ciphertext: encrypted.ciphertext,
+      });
+      setTransferResult(`Success: server decrypted txn (counter ${encrypted.counter} → next ${res.next_counter})`);
+    } catch (e) {
+      setTransferResult(e instanceof ApiError ? String(e.message) : "Transfer failed");
+    } finally {
+      setTransferLoading(false);
     }
   };
 
@@ -92,15 +133,27 @@ export default function DashboardPage() {
               </div>
               <Wallet className="h-7 w-7 text-[var(--primary)]" />
             </div>
-            <div className="mt-6 flex gap-3">
-              <button type="button" disabled className="btn-primary text-sm opacity-60" title="Demo only">
-                Transfer
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={demoEncryptedTransfer}
+                disabled={transferLoading}
+                className="btn-primary text-sm disabled:opacity-50"
+              >
+                {transferLoading ? "Encrypting..." : "Demo Encrypted Transfer"}
               </button>
               <button type="button" disabled className="btn-outline text-sm opacity-60" title="Demo only">
                 Add Money
               </button>
             </div>
-            <p className="mt-2 text-xs text-[var(--muted)]">Banking actions are demo placeholders in this build.</p>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Transfer uses ratcheted AES-GCM keys derived from ESP32 MFA proof — the session key is never sent on the wire.
+            </p>
+            {transferResult && (
+              <p className={`mt-2 text-xs ${transferResult.startsWith("Success") ? "text-[var(--success)]" : "text-red-500"}`}>
+                {transferResult}
+              </p>
+            )}
           </div>
 
           <div className="bank-card rounded-2xl p-6">

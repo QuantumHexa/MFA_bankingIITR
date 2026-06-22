@@ -5,7 +5,7 @@ from app.config import settings, validate_security_settings
 from app.crypto import load_or_generate_keypair
 from app.database import init_db
 from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
-from app.routes import admin, auth, health, users, ws
+from app.routes import admin, auth, health, transactions, users, ws
 
 app = FastAPI(
     title="SecureVault PUF-MFA Platform",
@@ -27,6 +27,7 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(ws.router, tags=["WebSocket"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(transactions.router, prefix="/api/transactions", tags=["Transactions"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 

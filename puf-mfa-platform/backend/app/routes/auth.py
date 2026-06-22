@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.crypto import decrypt_registration_payload, get_public_key_pem
-from app.database import AuthLog, AuthSession, PufDevice, RefreshToken, User
+from app.database import AuthLog, AuthSession, PufDevice, RefreshToken, SessionCryptoState, SiteAuthChallenge, User
 from app.deps import CurrentUser, DbSession
 from app.services.auth_service import (
     create_token_pair,
@@ -104,6 +104,39 @@ def _require_session_step(session: AuthSession, *allowed: str) -> None:
         )
 
 
+def _bootstrap_crypto_session(
+    db: Session,
+    user: User,
+    session: AuthSession,
+    proof_hex: str,
+    puf_mode: str,
+) -> dict:
+    """Store MFA proof server-side; client derives ratchet keys locally (key never transmitted)."""
+    expires = datetime.utcnow() + timedelta(hours=8)
+    row = SessionCryptoState(
+        user_id=user.id,
+        auth_session_id=session.id,
+        proof_hex=proof_hex.lower(),
+        nonce=session.nonce,
+        challenge=session.challenge,
+        puf_mode=puf_mode,
+        ratchet_counter=0,
+        expires_at=expires,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "crypto_session_id": row.id,
+        "auth_session_id": session.id,
+        "proof_hex": proof_hex.lower(),
+        "nonce": session.nonce,
+        "challenge": session.challenge,
+        "ratchet_counter": 0,
+        "puf_mode": puf_mode,
+    }
+
+
 def _complete_login(
     user: User,
     session: AuthSession,
@@ -148,11 +181,21 @@ class SignupRequest(BaseModel):
     password: str = Field(..., min_length=8)
     puf_enabled: bool = False
     puf_mode: str = Field(default="virtual", pattern=r"^(virtual|hardware|off)$")
+    site_auth_phrase: str | None = Field(default=None, min_length=4, max_length=40)
+
+
+class SiteChallengeRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=100)
+
+
+class SiteChallengeConfirmRequest(BaseModel):
+    challenge_id: str
 
 
 class LoginStartRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     password: str
+    site_challenge_id: str | None = None
 
 
 class OtpVerifyRequest(BaseModel):
@@ -198,6 +241,45 @@ def get_server_public_key() -> dict:
     return {"public_key_pem": get_public_key_pem()}
 
 
+@router.post("/site-challenge")
+def site_to_user_challenge(payload: SiteChallengeRequest, db: DbSession) -> dict:
+    """Return the user's site authentication phrase (anti-phishing, text-only)."""
+    user = db.query(User).filter(
+        ((User.username == payload.username) | (User.email == payload.username)),
+        User.is_active.is_(True),
+        User.role != "admin",
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    phrase = user.site_auth_phrase or f"SecureVault-{user.username}"
+    challenge = SiteAuthChallenge(
+        user_id=user.id,
+        phrase_shown=phrase,
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
+    )
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    return {
+        "challenge_id": challenge.id,
+        "phrase": phrase,
+        "message": "Verify your Authentication Text to continue",
+    }
+
+
+@router.post("/site-challenge/confirm")
+def site_to_user_confirm(payload: SiteChallengeConfirmRequest, db: DbSession) -> dict:
+    """User confirmed the displayed authentication phrase."""
+    challenge = db.query(SiteAuthChallenge).filter(SiteAuthChallenge.id == payload.challenge_id).first()
+    if not challenge or datetime.utcnow() > challenge.expires_at:
+        raise HTTPException(status_code=400, detail="Authentication challenge expired — start again")
+    challenge.confirmed = True
+    db.commit()
+    return {"ok": True, "challenge_id": challenge.id}
+
+
 @router.post("/signup")
 def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSession) -> dict:
     try:
@@ -226,6 +308,8 @@ def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSe
     while db.query(User).filter(User.account_number == account_number).first():
         account_number = _generate_account_number(payload)
 
+    site_phrase = payload.site_auth_phrase or f"{payload.username}Auth"
+
     user = User(
         username=payload.username,
         email=payload.email,
@@ -237,6 +321,7 @@ def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSe
         password_hash=hash_password(payload.password),
         puf_enabled=payload.puf_enabled and payload.puf_mode != "off",
         puf_mode="off" if not payload.puf_enabled else payload.puf_mode,
+        site_auth_phrase=site_phrase,
     )
     db.add(user)
     db.commit()
@@ -261,6 +346,7 @@ def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSe
         ),
         "puf_enabled": user.puf_enabled,
         "puf_enrollment": enroll_result,
+        "site_auth_phrase_set": bool(user.site_auth_phrase),
     }
 
 
@@ -273,6 +359,20 @@ def login_start(payload: LoginStartRequest, request: Request, response: Response
         _log_auth(db, user.id if user else None, "login", "password", "failed", request)
         _emit("auth_step", step="password", status="failed", username=payload.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if user.role != "admin":
+        if not payload.site_challenge_id:
+            raise HTTPException(status_code=400, detail="Site authentication required — verify your Authentication Text")
+        site_challenge = (
+            db.query(SiteAuthChallenge)
+            .filter(
+                SiteAuthChallenge.id == payload.site_challenge_id,
+                SiteAuthChallenge.user_id == user.id,
+            )
+            .first()
+        )
+        if not site_challenge or not site_challenge.confirmed or datetime.utcnow() > site_challenge.expires_at:
+            raise HTTPException(status_code=403, detail="Confirm your Authentication Text before entering password")
 
     session = AuthSession(
         user_id=user.id,
@@ -474,6 +574,7 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, response: Resp
     _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id})
     _emit("auth_step", step="puf", status="success", session_id=session.id)
     key = derive_session_key(session.challenge, payload.puf_response, session.nonce)
+    crypto_bundle = _bootstrap_crypto_session(db, user, session, payload.puf_response, user.puf_mode)
     result = _complete_login(user, session, db, response, session_key=key)
     result["puf_verification"] = {
         "verified": True,
@@ -486,6 +587,7 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, response: Resp
         "session_key": key,
         "nonce": session.nonce,
     }
+    result["crypto_bundle"] = crypto_bundle
     return result
 
 
@@ -523,7 +625,9 @@ def login_verify_puf_hardware(payload: SessionRequest, request: Request, respons
 
     _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id, **proof_meta})
     _emit("auth_step", step="puf", status="success", session_id=session.id)
-    key = derive_session_key(session.challenge, device.device_pubkey_hex, session.nonce)
+    proof_hex = proof_meta.get("proof_hex") or device.device_pubkey_hex
+    key = derive_session_key(session.challenge, proof_hex, session.nonce)
+    crypto_bundle = _bootstrap_crypto_session(db, user, session, proof_hex, "hardware")
     result = _complete_login(user, session, db, response, session_key=key)
     result["puf_verification"] = {
         "verified": True,
@@ -535,9 +639,11 @@ def login_verify_puf_hardware(payload: SessionRequest, request: Request, respons
         "stored_pubkey_hex": proof_meta.get("stored_pubkey_hex"),
         "elapsed_s": proof_meta.get("elapsed_s"),
         "login_id": proof_meta.get("login_id"),
+        "proof_hex": proof_hex,
         "session_key": key,
         "nonce": session.nonce,
     }
+    result["crypto_bundle"] = crypto_bundle
     return result
 
 

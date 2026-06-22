@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, Cpu, Eye, EyeOff, Key, Landmark } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ApiError, api, HardwarePufVerification, PufReadResult, PufVerification } from "@/lib/api";
+import { ApiError, api, CryptoBundle, HardwarePufVerification, PufReadResult, PufVerification } from "@/lib/api";
+import { saveCryptoBundle } from "@/lib/sessionCrypto";
 
 function CryptoField({ label, value }: { label: string; value: string }) {
   return (
@@ -32,27 +33,90 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
   const [resendingOtp, setResendingOtp] = useState(false);
+  const [sitePhrase, setSitePhrase] = useState("");
+  const [siteChallengeId, setSiteChallengeId] = useState("");
+  const [siteConfirmed, setSiteConfirmed] = useState(false);
+  const [skipSiteAuth, setSkipSiteAuth] = useState(false);
   const [pufData, setPufData] = useState<PufReadResult | null>(null);
   const [pufVerified, setPufVerified] = useState<PufVerification | HardwarePufVerification | null>(null);
   const [showCryptoDetails, setShowCryptoDetails] = useState(false);
   const [hardwareElapsed, setHardwareElapsed] = useState(0);
   const isHardwarePuf = pufMode === "hardware";
 
-  const totalSteps = requiresPuf || step >= 2 ? 3 : 2;
+  const totalSteps = (requiresPuf || step >= 3 ? 4 : 3) - (skipSiteAuth ? 1 : 0);
+  const displayStep = skipSiteAuth ? Math.max(step, 1) : step + 1;
+
+  const persistCryptoBundle = (bundle?: CryptoBundle) => {
+    if (bundle) saveCryptoBundle(bundle);
+  };
+
+  const handleUsernameContinue = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      if (username.toLowerCase() === "admin") {
+        setSkipSiteAuth(true);
+        setSitePhrase("");
+        setSiteChallengeId("");
+        setStep(1);
+        return;
+      }
+      const res = await api.siteChallenge(username);
+      setSitePhrase(res.phrase);
+      setSiteChallengeId(res.challenge_id);
+      setSiteConfirmed(false);
+      setSkipSiteAuth(false);
+      setStep(1);
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.message) : "User not found");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePassword = async () => {
+    setError("");
+    if (!skipSiteAuth && siteChallengeId && !siteConfirmed) {
+      setError("Please verify your Authentication Text displayed above");
+      return;
+    }
+    setLoading(true);
+    try {
+      if (siteChallengeId && !skipSiteAuth) {
+        await api.siteChallengeConfirm(siteChallengeId);
+      }
+      const res = await api.loginStart(username, password, siteChallengeId || undefined);
+      if (res.next_step === "dashboard" && res.access_token) {
+        persistCryptoBundle(res.crypto_bundle);
+        await login(res.access_token, res.refresh_token || "");
+        router.push("/admin");
+        return;
+      }
+      setSessionId(res.session_id || "");
+      setRequiresPuf(Boolean(res.requires_puf));
+      setPufMode(res.puf_mode || "virtual");
+      setOtpMessage(res.message);
+      setStep(2);
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.message) : "Invalid username or password");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (loading && isHardwarePuf && step === 2) {
+    if (loading && isHardwarePuf && step === 3) {
       const t = setInterval(() => setHardwareElapsed((s) => s + 1), 1000);
       return () => clearInterval(t);
     }
   }, [loading, isHardwarePuf, step]);
 
   useEffect(() => {
-    if (step !== 2) setHardwareElapsed(0);
+    if (step !== 3) setHardwareElapsed(0);
   }, [step]);
 
   useEffect(() => {
-    if (step !== 2 || !sessionId || !isHardwarePuf) return;
+    if (step !== 3 || !sessionId || !isHardwarePuf) return;
     let cancelled = false;
     (async () => {
       try {
@@ -67,28 +131,6 @@ export default function LoginPage() {
     };
   }, [step, sessionId, isHardwarePuf]);
 
-  const handlePassword = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      const res = await api.loginStart(username, password);
-      if (res.next_step === "dashboard" && res.access_token) {
-        await login(res.access_token, res.refresh_token || "");
-        router.push("/admin");
-        return;
-      }
-      setSessionId(res.session_id || "");
-      setRequiresPuf(Boolean(res.requires_puf));
-      setPufMode(res.puf_mode || "virtual");
-      setOtpMessage(res.message);
-      setStep(1);
-    } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "Invalid username or password");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleOtp = async () => {
     setError("");
     setLoading(true);
@@ -102,7 +144,7 @@ export default function LoginPage() {
       if (res.next_step === "verify_puf") {
         setPufData(null);
         setPufVerified(null);
-        setStep(2);
+        setStep(3);
         return;
       }
       setError("Unexpected login step. Please try again.");
@@ -146,6 +188,7 @@ export default function LoginPage() {
     try {
       const res = await api.verifyPuf(sessionId, pufData.puf_response);
       setPufVerified(res.puf_verification || null);
+      persistCryptoBundle(res.crypto_bundle);
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e) {
@@ -161,6 +204,7 @@ export default function LoginPage() {
     try {
       const res = await api.verifyPufHardware(sessionId);
       setPufVerified(res.puf_verification || null);
+      persistCryptoBundle(res.crypto_bundle);
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e) {
@@ -200,14 +244,14 @@ export default function LoginPage() {
           <div className="bank-card rounded-2xl p-8">
             <h1 className="text-xl font-bold text-[var(--primary)]">Sign In</h1>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Step {step + 1} of {totalSteps}
+              Step {displayStep} of {totalSteps}
             </p>
             <div className="mt-3 flex gap-1">
               {Array.from({ length: totalSteps }).map((_, i) => (
                 <div
                   key={i}
                   className={`h-1 flex-1 rounded-full transition-colors ${
-                    i <= step ? "bg-[var(--primary)]" : "bg-[var(--border)]"
+                    i < displayStep ? "bg-[var(--primary)]" : "bg-[var(--border)]"
                   }`}
                 />
               ))}
@@ -219,7 +263,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {otpMessage && step === 1 && (
+            {otpMessage && step === 2 && (
               <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
                 {otpMessage}
               </div>
@@ -230,13 +274,46 @@ export default function LoginPage() {
                 className="mt-6 space-y-4"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!loading && username && password) void handlePassword();
+                  if (!loading && username) void handleUsernameContinue();
                 }}
               >
                 <div>
                   <label className="mb-1 block text-sm font-medium">Username</label>
                   <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="your_username" />
                 </div>
+                <button type="submit" disabled={loading || !username} className="btn-primary w-full disabled:opacity-50">
+                  {loading ? "Loading..." : "Continue"}
+                </button>
+              </form>
+            )}
+
+            {step === 1 && (
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!loading && password && (skipSiteAuth || siteConfirmed)) void handlePassword();
+                }}
+              >
+                {!skipSiteAuth && sitePhrase && (
+                  <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/40">
+                    <p className="text-sm font-medium text-[var(--primary)]">
+                      Verify your Authentication Text to continue
+                    </p>
+                    <div className="rounded-lg border border-sky-300 bg-white px-4 py-3 text-center dark:border-sky-800 dark:bg-slate-900">
+                      <p className="font-mono text-lg font-semibold tracking-wide text-[var(--primary)]">{sitePhrase}</p>
+                    </div>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={siteConfirmed}
+                        onChange={(e) => setSiteConfirmed(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>This is my Authentication Text</span>
+                    </label>
+                  </div>
+                )}
                 <div>
                   <label className="mb-1 block text-sm font-medium">Password</label>
                   <div className="relative">
@@ -252,13 +329,17 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
-                <button type="submit" disabled={loading || !username || !password} className="btn-primary w-full disabled:opacity-50">
-                  {loading ? "Verifying..." : "Continue"}
+                <button
+                  type="submit"
+                  disabled={loading || !password || (!skipSiteAuth && !!sitePhrase && !siteConfirmed)}
+                  className="btn-primary w-full disabled:opacity-50"
+                >
+                  {loading ? "Verifying..." : skipSiteAuth ? "Sign In" : "Continue to OTP"}
                 </button>
               </form>
             )}
 
-            {step === 1 && (
+            {step === 2 && (
               <form
                 className="mt-6 space-y-4"
                 onSubmit={(e) => {
@@ -285,7 +366,7 @@ export default function LoginPage() {
               </form>
             )}
 
-            {step === 2 && isHardwarePuf && (
+            {step === 3 && isHardwarePuf && (
               <div className="mt-6 space-y-4">
                 <div className="text-center">
                   <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
@@ -342,7 +423,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {step === 2 && !isHardwarePuf && (
+            {step === 3 && !isHardwarePuf && (
               <div className="mt-6 space-y-4">
                 <div className="text-center">
                   <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
