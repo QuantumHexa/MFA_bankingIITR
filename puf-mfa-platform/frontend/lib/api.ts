@@ -1,3 +1,5 @@
+import { buildEncryptedSignupBody } from "./registrationCrypto";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export class ApiError extends Error {
@@ -29,7 +31,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
 }
 
 export const api = {
-  signup: (body: {
+  signup: async (body: {
     username: string;
     email: string;
     phone: string;
@@ -40,16 +42,18 @@ export const api = {
     password: string;
     puf_enabled: boolean;
     puf_mode: string;
-  }) =>
-    request<{
+  }) => {
+    const encryptedBody = await buildEncryptedSignupBody(API_URL, body);
+    return request<{
       message: string;
       user_id: string;
       account_number: string;
       initial_deposit: number;
       mfa_note: string;
       puf_enabled: boolean;
-      puf_enrollment?: { secret_identifier?: string };
-    }>("/api/auth/signup", { method: "POST", body: JSON.stringify(body) }),
+      puf_enrollment?: { status?: string; secret_identifier?: string; message?: string };
+    }>("/api/auth/signup", { method: "POST", body: JSON.stringify(encryptedBody) });
+  },
 
   loginStart: (username: string, password: string) =>
     request<{
@@ -94,7 +98,7 @@ export const api = {
   pufRead: (session_id: string) =>
     request<PufReadResult>("/api/auth/login/puf-read", {
       method: "POST",
-      body: JSON.stringify({ session_id, otp: "000000" }),
+      body: JSON.stringify({ session_id }),
     }),
 
   verifyPuf: (session_id: string, puf_response: string) =>
@@ -102,6 +106,17 @@ export const api = {
       "/api/auth/login/verify-puf",
       { method: "POST", body: JSON.stringify({ session_id, puf_response }) },
     ),
+
+  verifyPufHardware: (session_id: string) =>
+    request<{
+      access_token: string;
+      refresh_token: string;
+      next_step: string;
+      puf_verification?: HardwarePufVerification;
+    }>("/api/auth/login/verify-puf-hardware", {
+      method: "POST",
+      body: JSON.stringify({ session_id }),
+    }),
 
   me: (token?: string | null) => request<UserProfile>("/api/auth/me", {}, token ?? null),
 
@@ -242,18 +257,37 @@ export type PufReadResult = {
   puf_mode: string;
   device_label: string;
   secret_identifier?: string;
-  challenge: string;
+  challenge?: string;
   nonce: string;
-  puf_response: string;
-  reference_response: string;
-  hamming_distance: number;
-  will_verify: boolean;
-  session_key: string;
+  puf_response?: string;
+  reference_response?: string;
+  hamming_distance?: number;
+  will_verify?: boolean;
+  session_key?: string;
   message: string;
+  device_status?: string;
+  live_pubkey_hex?: string | null;
+  stored_pubkey_hex?: string | null;
+  pubkey_match?: boolean;
+  ready_for_auth?: boolean;
+};
+
+export type HardwarePufVerification = {
+  verified: boolean;
+  puf_mode: string;
+  device_label: string;
+  device_status?: string;
+  pubkey_match?: boolean;
+  live_pubkey_hex?: string;
+  stored_pubkey_hex?: string;
+  elapsed_s?: number;
+  login_id?: string;
+  session_key: string;
+  nonce: string;
 };
 
 export type PufStatus = {
   virtual: { online: boolean; host: string; port: number; error: string };
-  hardware: { online: boolean; port: string; baud: number; error: string };
+  hardware: { online: boolean; port: string; baud: number; status?: string; error: string };
   twilio_configured: boolean;
 };

@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ArrowLeft, CheckCircle2, Cpu, Eye, EyeOff, Key, Landmark } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, Cpu, Eye, EyeOff, Key, Landmark } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ApiError, api, PufReadResult, PufVerification } from "@/lib/api";
+import { ApiError, api, HardwarePufVerification, PufReadResult, PufVerification } from "@/lib/api";
 
 function CryptoField({ label, value }: { label: string; value: string }) {
   return (
@@ -33,7 +33,39 @@ export default function LoginPage() {
   const [otpMessage, setOtpMessage] = useState("");
   const [resendingOtp, setResendingOtp] = useState(false);
   const [pufData, setPufData] = useState<PufReadResult | null>(null);
-  const [pufVerified, setPufVerified] = useState<PufVerification | null>(null);
+  const [pufVerified, setPufVerified] = useState<PufVerification | HardwarePufVerification | null>(null);
+  const [showCryptoDetails, setShowCryptoDetails] = useState(false);
+  const [hardwareElapsed, setHardwareElapsed] = useState(0);
+  const isHardwarePuf = pufMode === "hardware";
+
+  const totalSteps = requiresPuf || step >= 2 ? 3 : 2;
+
+  useEffect(() => {
+    if (loading && isHardwarePuf && step === 2) {
+      const t = setInterval(() => setHardwareElapsed((s) => s + 1), 1000);
+      return () => clearInterval(t);
+    }
+  }, [loading, isHardwarePuf, step]);
+
+  useEffect(() => {
+    if (step !== 2) setHardwareElapsed(0);
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 2 || !sessionId || !isHardwarePuf) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.pufRead(sessionId);
+        if (!cancelled) setPufData(res);
+      } catch {
+        /* status check is optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, sessionId, isHardwarePuf]);
 
   const handlePassword = async () => {
     setError("");
@@ -71,7 +103,9 @@ export default function LoginPage() {
         setPufData(null);
         setPufVerified(null);
         setStep(2);
+        return;
       }
+      setError("Unexpected login step. Please try again.");
     } catch (e) {
       setError(e instanceof ApiError ? String(e.message) : "Invalid OTP");
     } finally {
@@ -106,7 +140,7 @@ export default function LoginPage() {
   };
 
   const handlePufVerify = async () => {
-    if (!pufData) return;
+    if (!pufData?.puf_response) return;
     setError("");
     setLoading(true);
     try {
@@ -116,6 +150,21 @@ export default function LoginPage() {
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e) {
       setError(e instanceof ApiError ? String(e.message) : "PUF verification failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHardwareAuth = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await api.verifyPufHardware(sessionId);
+      setPufVerified(res.puf_verification || null);
+      await login(res.access_token, res.refresh_token);
+      setTimeout(() => router.push("/dashboard"), 2500);
+    } catch (e) {
+      setError(e instanceof ApiError ? String(e.message) : "ESP32 device authentication failed");
     } finally {
       setLoading(false);
     }
@@ -141,14 +190,28 @@ export default function LoginPage() {
         <div className="w-full max-w-lg">
           <div className="mb-6 flex items-center justify-between lg:hidden">
             <Link href="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Home</Link>
+            <div className="flex items-center gap-2">
+              <Landmark className="h-5 w-5 text-[var(--primary)]" />
+              <span className="text-sm font-bold text-[var(--primary)]">SecureVault</span>
+            </div>
             <ThemeToggle />
           </div>
 
           <div className="bank-card rounded-2xl p-8">
             <h1 className="text-xl font-bold text-[var(--primary)]">Sign In</h1>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Step {step + 1} of {requiresPuf || step >= 2 ? 3 : 2}
+              Step {step + 1} of {totalSteps}
             </p>
+            <div className="mt-3 flex gap-1">
+              {Array.from({ length: totalSteps }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1 flex-1 rounded-full transition-colors ${
+                    i <= step ? "bg-[var(--primary)]" : "bg-[var(--border)]"
+                  }`}
+                />
+              ))}
+            </div>
 
             {error && (
               <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
@@ -163,7 +226,13 @@ export default function LoginPage() {
             )}
 
             {step === 0 && (
-              <div className="mt-6 space-y-4">
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!loading && username && password) void handlePassword();
+                }}
+              >
                 <div>
                   <label className="mb-1 block text-sm font-medium">Username</label>
                   <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="your_username" />
@@ -183,15 +252,23 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
-                <button onClick={handlePassword} disabled={loading || !username || !password} className="btn-primary w-full disabled:opacity-50">
+                <button type="submit" disabled={loading || !username || !password} className="btn-primary w-full disabled:opacity-50">
                   {loading ? "Verifying..." : "Continue"}
                 </button>
-              </div>
+              </form>
             )}
 
             {step === 1 && (
-              <div className="mt-6 space-y-4">
-                <p className="text-sm text-[var(--muted)]">Enter the 6-digit OTP sent to your mobile number on WhatsApp</p>
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!loading && otp.length === 6) void handleOtp();
+                }}
+              >
+                <p className="text-sm text-[var(--muted)]">
+                  Enter the 6-digit OTP sent to your WhatsApp number
+                </p>
                 <input
                   className="input-field text-center font-mono text-2xl tracking-[0.4em]"
                   value={otp}
@@ -199,22 +276,79 @@ export default function LoginPage() {
                   placeholder="000000"
                   maxLength={6}
                 />
-                <button onClick={handleOtp} disabled={loading || otp.length !== 6} className="btn-primary w-full disabled:opacity-50">
+                <button type="submit" disabled={loading || otp.length !== 6} className="btn-primary w-full disabled:opacity-50">
                   {loading ? "Verifying..." : "Verify OTP"}
                 </button>
-                <button onClick={handleResendOtp} disabled={resendingOtp || !sessionId} className="btn-outline w-full disabled:opacity-50">
+                <button type="button" onClick={handleResendOtp} disabled={resendingOtp || !sessionId} className="btn-outline w-full disabled:opacity-50">
                   {resendingOtp ? "Resending..." : "Resend OTP"}
                 </button>
+              </form>
+            )}
+
+            {step === 2 && isHardwarePuf && (
+              <div className="mt-6 space-y-4">
+                <div className="text-center">
+                  <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
+                  <p className="mt-2 font-medium">ESP32-C6 Hardware PUF Authentication</p>
+                  <p className="text-sm text-[var(--muted)]">
+                    Close Thonny/serial monitors, keep ESP32 on USB (COM port), then authenticate
+                  </p>
+                </div>
+
+                {loading && (
+                  <p className="text-center text-xs text-[var(--muted)]">
+                    PUF reconstruction may take up to 2 minutes… {hardwareElapsed}s elapsed
+                  </p>
+                )}
+
+                {pufData && !pufVerified && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
+                      <p className="text-[var(--muted)]">Device status</p>
+                      <p className="font-mono font-medium">{pufData.device_status || "unknown"}</p>
+                    </div>
+                    {pufData.pubkey_match !== undefined && (
+                      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
+                        <span className="text-[var(--muted)]">Stored pubkey match</span>
+                        <span className={`font-bold ${pufData.pubkey_match ? "text-[var(--success)]" : "text-red-500"}`}>
+                          {pufData.pubkey_match ? "Yes" : "No"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!pufVerified && (
+                  <button onClick={handleHardwareAuth} disabled={loading} className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-50">
+                    <Key className="h-4 w-4" />
+                    {loading ? "Authenticating with ESP32… (PUF may take up to 2 min)" : "Authenticate with ESP32 Device"}
+                  </button>
+                )}
+
+                {pufVerified && (
+                  <div className="space-y-3 text-center">
+                    <CheckCircle2 className="mx-auto h-14 w-14 text-[var(--success)]" />
+                    <p className="text-lg font-semibold text-[var(--success)]">ESP32 Device Authenticated</p>
+                    <p className="text-sm text-[var(--muted)]">
+                      MFA proof verified
+                      {"elapsed_s" in pufVerified && pufVerified.elapsed_s != null
+                        ? ` in ${pufVerified.elapsed_s}s`
+                        : ""}
+                      {" · Redirecting to dashboard..."}
+                    </p>
+                    <CryptoField label="Session Key" value={pufVerified.session_key} />
+                  </div>
+                )}
               </div>
             )}
 
-            {step === 2 && (
+            {step === 2 && !isHardwarePuf && (
               <div className="mt-6 space-y-4">
                 <div className="text-center">
                   <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
                   <p className="mt-2 font-medium">Virtual PUF Device Authentication</p>
                   <p className="text-sm text-[var(--muted)]">
-                    Step 1: Read response from {pufMode} PUF bridge · Step 2: Verify & derive session key
+                    Step 1: Read response from virtual PUF bridge · Step 2: Verify & derive session key
                   </p>
                 </div>
 
@@ -226,28 +360,51 @@ export default function LoginPage() {
 
                 {pufData && !pufVerified && (
                   <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
-                        PUF Challenge → Response (HMAC-SHA256)
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">Device: {pufData.device_label}</p>
+                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
+                      <p className="text-[var(--muted)]">Device: {pufData.device_label}</p>
+                      <p className="font-mono font-medium">{pufData.device_status || "unknown"}</p>
                     </div>
-                    <CryptoField label="Server Challenge (32 hex)" value={pufData.challenge} />
-                    <CryptoField label="Session Nonce" value={pufData.nonce} />
-                    <CryptoField label="PUF Response from Virtual Device" value={pufData.puf_response} />
-                    {pufData.secret_identifier && <CryptoField label="Secret Identifier" value={pufData.secret_identifier} />}
-                    <CryptoField label="Reference Response (live verify)" value={pufData.reference_response} />
-                    <CryptoField label="Derived Session Key (HMAC-SHA256)" value={pufData.session_key} />
-                    <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
-                      <span className="text-[var(--muted)]">Hamming distance</span>
-                      <span className={`font-mono font-bold ${pufData.will_verify ? "text-[var(--success)]" : "text-red-500"}`}>
-                        {pufData.hamming_distance} bits {pufData.will_verify ? "✓" : "✗"}
-                      </span>
-                    </div>
-                    <button onClick={handlePufVerify} disabled={loading || !pufData.will_verify} className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-50">
+                    {pufData.challenge && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCryptoDetails(!showCryptoDetails)}
+                        className="flex w-full items-center justify-between text-xs font-medium text-[var(--primary)]"
+                      >
+                        {showCryptoDetails ? "Hide" : "Show"} technical details
+                        {showCryptoDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                    )}
+                    {showCryptoDetails && (
+                      <>
+                        {pufData.challenge && <CryptoField label="Server Challenge" value={pufData.challenge} />}
+                        <CryptoField label="Session Nonce" value={pufData.nonce} />
+                        {pufData.puf_response && <CryptoField label="PUF Response" value={pufData.puf_response} />}
+                        {pufData.reference_response && <CryptoField label="Reference Response" value={pufData.reference_response} />}
+                        {pufData.secret_identifier && <CryptoField label="Secret Identifier" value={pufData.secret_identifier} />}
+                        {pufData.session_key && <CryptoField label="Derived Session Key" value={pufData.session_key} />}
+                      </>
+                    )}
+                    {pufData.hamming_distance !== undefined && (
+                      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
+                        <span className="text-[var(--muted)]">Hamming distance</span>
+                        <span className={`font-mono font-bold ${pufData.will_verify ? "text-[var(--success)]" : "text-red-500"}`}>
+                          {pufData.hamming_distance} bits {pufData.will_verify ? "✓" : "✗"}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      onClick={handlePufVerify}
+                      disabled={loading || !pufData.puf_response}
+                      className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-50"
+                    >
                       <Key className="h-4 w-4" />
                       {loading ? "Verifying..." : "Verify PUF & Complete Login"}
                     </button>
+                    {!pufData.will_verify && pufData.puf_response && (
+                      <button type="button" onClick={handlePufRead} disabled={loading} className="btn-outline w-full text-sm">
+                        Re-read PUF device
+                      </button>
+                    )}
                   </div>
                 )}
 

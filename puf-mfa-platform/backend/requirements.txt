@@ -14,3 +14,4 @@ pyserial>=3.5
 websockets>=14.0
 aiosqlite>=0.20.0
 psycopg2-binary>=2.9.9
+cryptography>=42.0.0

@@ -26,19 +26,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(profile);
     } catch {
       const refresh = authStore.getRefresh();
-      if (refresh) {
-        try {
-          const rotated = await api.refresh(refresh);
-          authStore.setTokens(rotated.access_token, rotated.refresh_token);
-          const profile = await api.me(authStore.getToken() || "");
-          setUser(profile);
-          return;
-        } catch {
-          // fall through to clear
-        }
+      try {
+        const rotated = refresh
+          ? await api.refresh(refresh)
+          : await api.refresh("");
+        authStore.setTokens(rotated.access_token, rotated.refresh_token);
+        const profile = await api.me(authStore.getToken() || "");
+        setUser(profile);
+        return;
+      } catch {
+        authStore.clear();
+        setUser(null);
       }
-      authStore.clear();
-      setUser(null);
     }
   }, []);
 

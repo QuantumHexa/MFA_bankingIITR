@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const [pufMode, setPufMode] = useState("virtual");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [msgOk, setMsgOk] = useState(true);
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -39,12 +40,15 @@ export default function DashboardPage() {
     if (!token) return;
     setSaving(true);
     setMsg("");
+    setMsgOk(true);
     try {
       await api.updatePufSettings(token, pufEnabled, pufMode);
       await refreshUser();
       setMsg("Security settings saved.");
+      setMsgOk(true);
     } catch (e) {
       setMsg(e instanceof ApiError ? String(e.message) : "Failed to save");
+      setMsgOk(false);
     } finally {
       setSaving(false);
     }
@@ -89,9 +93,14 @@ export default function DashboardPage() {
               <Wallet className="h-7 w-7 text-[var(--primary)]" />
             </div>
             <div className="mt-6 flex gap-3">
-              <button className="btn-primary text-sm">Transfer</button>
-              <button className="btn-outline text-sm">Add Money</button>
+              <button type="button" disabled className="btn-primary text-sm opacity-60" title="Demo only">
+                Transfer
+              </button>
+              <button type="button" disabled className="btn-outline text-sm opacity-60" title="Demo only">
+                Add Money
+              </button>
             </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">Banking actions are demo placeholders in this build.</p>
           </div>
 
           <div className="bank-card rounded-2xl p-6">
@@ -105,19 +114,26 @@ export default function DashboardPage() {
                 <input type="checkbox" checked={pufEnabled} onChange={(e) => setPufEnabled(e.target.checked)} />
               </label>
               {pufEnabled && (
-                <select
-                  className="input-field"
-                  value={pufMode}
-                  onChange={(e) => setPufMode(e.target.value)}
-                >
-                  <option value="virtual">Virtual Device</option>
-                  <option value="hardware">Hardware (CMOD A7)</option>
-                </select>
+                <>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Changing PUF mode re-enrolls your device. Keep ESP32 connected for hardware mode.
+                  </p>
+                  <select
+                    className="input-field"
+                    value={pufMode}
+                    onChange={(e) => setPufMode(e.target.value)}
+                  >
+                    <option value="virtual">Virtual Device</option>
+                    <option value="hardware">ESP32-C6 Hardware PUF</option>
+                  </select>
+                </>
               )}
               <button onClick={savePufSettings} disabled={saving} className="btn-primary w-full text-sm disabled:opacity-50">
                 {saving ? "Saving..." : "Save Settings"}
               </button>
-              {msg && <p className="text-xs text-[var(--success)]">{msg}</p>}
+              {msg && (
+                <p className={`text-xs ${msgOk ? "text-[var(--success)]" : "text-red-500"}`}>{msg}</p>
+              )}
             </div>
           </div>
         </div>

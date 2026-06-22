@@ -6,3 +6,13 @@
 
     reverse_proxy frontend:3000
 }
+
+# Plain-HTTP entry point for Cloudflare Tunnel (edge terminates TLS).
+:8080 {
+    encode gzip
+
+    @backend path /api/* /docs* /openapi.json /ws/*
+    reverse_proxy @backend backend:8000
+
+    reverse_proxy frontend:3000
+}

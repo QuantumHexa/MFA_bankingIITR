@@ -34,3 +34,7 @@ Thumbs.db
 # Docker / Caddy local data
 caddy_data/
 caddy_config/
+
+# RSA registration encryption keys
+server_rsa_private.pem
+puf-mfa-platform/backend/server_rsa_private.pem

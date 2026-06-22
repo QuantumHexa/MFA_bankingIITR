@@ -21,7 +21,12 @@ const DEFAULT_STEPS: Step[] = [
   { id: "complete", label: "Access Granted", icon: ShieldCheck, status: "pending", detail: "Pending" },
 ];
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://localhost/ws/auth";
+const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "";
+const WS_MONITOR_URL =
+  WS_BASE.replace(/\/ws\/auth\/?$/, "/ws/auth-monitor") ||
+  (typeof window !== "undefined"
+    ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws/auth-monitor`
+    : "ws://127.0.0.1:8000/ws/auth-monitor");
 
 export function LiveAuthStepper() {
   const [steps, setSteps] = useState<Step[]>(DEFAULT_STEPS);
@@ -31,7 +36,9 @@ export function LiveAuthStepper() {
     let ws: WebSocket;
     try {
       const token = authStore.getToken();
-      const url = token ? `${WS_URL}${WS_URL.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : WS_URL;
+      const url = token && WS_BASE
+        ? `${WS_BASE}${WS_BASE.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
+        : WS_MONITOR_URL;
       ws = new WebSocket(url);
     } catch {
       return;

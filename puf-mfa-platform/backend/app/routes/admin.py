@@ -45,6 +45,7 @@ def auth_analytics(db: DbSession, _: AdminUser) -> dict:
 @router.get("/puf-status")
 def puf_status(_: AdminUser) -> dict:
     from app.config import settings
+    from app.services import esp32_mfa_bridge
     from app.services.puf_service import read_puf
 
     import secrets
@@ -54,6 +55,7 @@ def puf_status(_: AdminUser) -> dict:
     hardware_ok = False
     virtual_error = ""
     hardware_error = ""
+    hardware_status = ""
 
     try:
         resp = read_puf(challenge, "virtual")
@@ -64,16 +66,19 @@ def puf_status(_: AdminUser) -> dict:
         virtual_error = str(exc)
 
     try:
-        resp = read_puf(challenge, "hardware")
-        hardware_ok = bool(resp)
-        if not hardware_ok:
-            hardware_error = f"No response on {settings.hardware_puf_serial_port}"
+        hardware_ok, hardware_status, hardware_error = esp32_mfa_bridge.hardware_device_online()
     except Exception as exc:
         hardware_error = str(exc)
 
     return {
         "virtual": {"online": virtual_ok, "host": settings.virtual_puf_host, "port": settings.virtual_puf_port, "error": virtual_error},
-        "hardware": {"online": hardware_ok, "port": settings.hardware_puf_serial_port, "baud": settings.hardware_puf_baud, "error": hardware_error},
+        "hardware": {
+            "online": hardware_ok,
+            "port": settings.hardware_puf_serial_port,
+            "baud": settings.hardware_puf_baud,
+            "status": hardware_status,
+            "error": hardware_error,
+        },
         "twilio_configured": bool(settings.twilio_account_sid and settings.twilio_auth_token),
     }
 

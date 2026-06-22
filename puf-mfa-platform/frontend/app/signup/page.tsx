@@ -27,6 +27,7 @@ export default function SignupPage() {
     account_number: string;
     initial_deposit: number;
     mfa_note: string;
+    puf_enrollment?: { status?: string; message?: string; secret_identifier?: string };
   } | null>(null);
   const [secretIdentifier, setSecretIdentifier] = useState("");
   const [readingPuf, setReadingPuf] = useState(false);
@@ -41,6 +42,7 @@ export default function SignupPage() {
         account_number: res.account_number,
         initial_deposit: res.initial_deposit,
         mfa_note: res.mfa_note,
+        puf_enrollment: res.puf_enrollment,
       });
       if (res.puf_enrollment?.secret_identifier) {
         setSecretIdentifier(res.puf_enrollment.secret_identifier);
@@ -88,17 +90,26 @@ export default function SignupPage() {
             <h1 className="text-xl font-bold text-[var(--primary)]">Create Account</h1>
 
             {created ? (
-              <div className="mt-6 space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm dark:border-rose-900 dark:bg-rose-950/30">
-                <p className="font-semibold">Account Created</p>
+              <div className="mt-6 space-y-3 rounded-xl border border-green-200 bg-green-50 p-5 text-sm dark:border-green-800 dark:bg-green-950/30">
+                <p className="font-semibold text-[var(--success)]">Account Created</p>
                 <p><span className="font-medium">Your Account No:</span> <span className="font-mono">{created.account_number}</span></p>
                 <p><span className="font-medium">Initial Amount:</span> INR {created.initial_deposit.toLocaleString()}</p>
                 <p className="text-xs text-[var(--muted)]">{created.mfa_note}</p>
+                {created.puf_enrollment?.status === "error" && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    <p className="font-medium">PUF enrollment did not complete</p>
+                    <p className="mt-1">{created.puf_enrollment.message || "Connect your device and enroll from the dashboard after login."}</p>
+                  </div>
+                )}
+                {created.puf_enrollment?.status === "success" && created.puf_enrollment.secret_identifier && (
+                  <p className="text-xs"><span className="font-medium">Device ID:</span> <span className="font-mono">{created.puf_enrollment.secret_identifier}</span></p>
+                )}
                 <button onClick={() => router.push("/login")} className="btn-primary mt-2 w-full">Go to Login</button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                 {error && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">{error}</div>
                 )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -110,7 +121,7 @@ export default function SignupPage() {
                     <input className="input-field" type="date" required value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium">Mobile No. (WhatsApp)</label>
+                    <label className="mb-1 block text-sm font-medium">Mobile (10-digit, WhatsApp OTP)</label>
                     <input className="input-field" required pattern="\d{10}" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="7300041850" />
                   </div>
                   <div>
@@ -158,7 +169,8 @@ export default function SignupPage() {
                     className="mt-0.5"
                   />
                   <div>
-                    <p className="text-sm font-medium">Enable MFA</p>
+                    <p className="text-sm font-medium">Enable PUF device factor</p>
+                    <p className="text-xs text-[var(--muted)]">WhatsApp OTP is always required at login</p>
                   </div>
                 </label>
 
@@ -167,12 +179,17 @@ export default function SignupPage() {
                     <p className="text-sm font-medium">Select PUF mode (one at a time)</p>
                     <label className="flex items-center gap-2 text-sm">
                       <input type="radio" name="puf_mode" checked={form.puf_mode === "hardware"} onChange={() => setForm({ ...form, puf_mode: "hardware" })} />
-                      Hardware PUF
+                      ESP32-C6 Hardware PUF
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <input type="radio" name="puf_mode" checked={form.puf_mode === "virtual"} onChange={() => setForm({ ...form, puf_mode: "virtual" })} />
                       Virtual PUF
                     </label>
+                    {form.puf_mode === "hardware" && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        ESP32-C6 must be connected to the PC running the backend at signup time.
+                      </p>
+                    )}
                     <button type="button" onClick={readPufSecret} className="btn-outline text-sm" disabled={readingPuf}>
                       {readingPuf ? "Reading PUF..." : "Read PUF"}
                     </button>

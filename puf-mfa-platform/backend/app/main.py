@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings, validate_security_settings
+from app.crypto import load_or_generate_keypair
 from app.database import init_db
 from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.routes import admin, auth, health, users, ws
@@ -33,6 +34,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 def on_startup() -> None:
     validate_security_settings(settings)
     init_db()
+    load_or_generate_keypair(settings.rsa_private_key_path)
 
 
 @app.get("/")

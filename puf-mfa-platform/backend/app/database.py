@@ -43,6 +43,7 @@ class PufDevice(Base):
     reliability_mask: Mapped[str | None] = mapped_column(Text, nullable=True)
     challenge_seed: Mapped[str | None] = mapped_column(String(64), nullable=True)
     secret_identifier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    device_pubkey_hex: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="devices")
@@ -117,9 +118,6 @@ def seed_admin() -> None:
             if existing.dob is None:
                 existing.dob = "1990-01-01"
                 updated = True
-            # Keep admin password aligned with configured ADMIN_PASSWORD.
-            existing.password_hash = hash_password(settings.admin_password)
-            updated = True
             if updated:
                 db.commit()
             return
@@ -165,6 +163,8 @@ def _ensure_sqlite_columns() -> None:
         puf_cols = {row[1] for row in db.execute(text("PRAGMA table_info(puf_devices)")).fetchall()}
         if "secret_identifier" not in puf_cols:
             db.execute(text("ALTER TABLE puf_devices ADD COLUMN secret_identifier VARCHAR(32)"))
+        if "device_pubkey_hex" not in puf_cols:
+            db.execute(text("ALTER TABLE puf_devices ADD COLUMN device_pubkey_hex VARCHAR(64)"))
 
         auth_session_cols = {row[1] for row in db.execute(text("PRAGMA table_info(auth_sessions)")).fetchall()}
         if "otp_attempts" not in auth_session_cols:

@@ -45,13 +45,13 @@ def read_puf_hardware(challenge_hex: str) -> str:
     import serial
 
     challenge = bytes.fromhex(challenge_hex.ljust(32, "0")[:32])
-    ser = serial.Serial(settings.hardware_puf_serial_port, settings.hardware_puf_baud, timeout=2)
+    ser = serial.Serial(settings.hardware_puf_serial_port, settings.hardware_puf_baud, timeout=5)
     try:
         ser.reset_input_buffer()
         ser.write(challenge.ljust(16, b"\x00")[:16])
-        time.sleep(0.8)
+        time.sleep(2.0)  # ESP32-C6 may need time for PUF reconstruction
         data = b""
-        deadline = time.time() + 2
+        deadline = time.time() + 5
         while len(data) < 16 and time.time() < deadline:
             waiting = ser.in_waiting
             if waiting:
@@ -137,29 +137,49 @@ def derive_secret_identifier(response: str, mode: str) -> str:
 def enroll_puf(db: Session, user: User, mode: str) -> dict:
     import secrets
 
-    challenge = secrets.token_hex(16)
-    samples = ENROLL_SAMPLES if mode == "hardware" else 1
-    reads = [read_puf(challenge, mode) for _ in range(samples)]
-    reads = [r for r in reads if r]
+    if mode == "hardware":
+        from app.services import esp32_mfa_bridge
 
-    if not reads:
-        return {"status": "error", "message": f"PUF device did not respond ({mode} mode)"}
+        try:
+            status = esp32_mfa_bridge.device_status()
+            if status == "puf_not_enrolled":
+                return {
+                    "status": "error",
+                    "message": "ESP32 PUF not enrolled — complete 30-cycle cold-boot enrollment on board",
+                }
+            pubkey_hex = esp32_mfa_bridge.enroll_device(None, user.id)
+        except OSError as exc:
+            return {"status": "error", "message": f"ESP32 serial unavailable: {exc}"}
+        except (TimeoutError, RuntimeError, ValueError) as exc:
+            return {"status": "error", "message": str(exc)}
 
-    if mode == "hardware" and len(reads) >= 2:
-        enrolled, reliability_mask = _build_reference_and_mask(reads)
+        enrolled = pubkey_hex
+        reliability_mask = None
+        challenge = secrets.token_hex(16)
+        secret_identifier = derive_secret_identifier(pubkey_hex, mode)
+        device_pubkey_hex = pubkey_hex
     else:
+        challenge = secrets.token_hex(16)
+        reads = [read_puf(challenge, mode) for _ in range(1)]
+        reads = [r for r in reads if r]
+
+        if not reads:
+            return {"status": "error", "message": f"PUF device did not respond ({mode} mode)"}
+
         enrolled = reads[0]
         reliability_mask = None
-    secret_identifier = derive_secret_identifier(enrolled, mode)
+        secret_identifier = derive_secret_identifier(enrolled, mode)
+        device_pubkey_hex = None
 
     device = db.query(PufDevice).filter(PufDevice.user_id == user.id).first()
-    label = "CMOD A7 Arbiter PUF" if mode == "hardware" else "Virtual PUF Device"
+    label = "ESP32-C6 Hardware PUF" if mode == "hardware" else "Virtual PUF Device"
     if device:
         device.enrolled_response = enrolled
         device.reliability_mask = reliability_mask
         device.challenge_seed = challenge
         device.device_label = label
         device.secret_identifier = secret_identifier
+        device.device_pubkey_hex = device_pubkey_hex
     else:
         device = PufDevice(
             user_id=user.id,
@@ -168,18 +188,22 @@ def enroll_puf(db: Session, user: User, mode: str) -> dict:
             challenge_seed=challenge,
             device_label=label,
             secret_identifier=secret_identifier,
+            device_pubkey_hex=device_pubkey_hex,
         )
         db.add(device)
 
     user.puf_enabled = True
     user.puf_mode = mode
     db.commit()
-    return {
+    result = {
         "status": "success",
         "mode": mode,
         "challenge": challenge,
         "response_preview": enrolled[:16] + "...",
         "has_reliability_mask": bool(reliability_mask),
-        "samples_used": len(reads),
+        "samples_used": 1,
         "secret_identifier": secret_identifier,
     }
+    if mode == "hardware":
+        result["device_pubkey_preview"] = pubkey_hex[:32] + "..."
+    return result

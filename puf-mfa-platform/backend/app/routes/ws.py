@@ -23,6 +23,16 @@ async def auth_flow_ws(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
 
+    await _auth_ws_loop(websocket)
+
+
+@router.websocket("/ws/auth-monitor")
+async def auth_monitor_ws(websocket: WebSocket) -> None:
+    """Public read-only stream for live login stepper on homepage (no secrets)."""
+    await _auth_ws_loop(websocket)
+
+
+async def _auth_ws_loop(websocket: WebSocket) -> None:
     await auth_events.connect(websocket)
     try:
         await websocket.send_json(

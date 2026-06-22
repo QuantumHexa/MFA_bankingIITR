@@ -3,10 +3,11 @@ import random
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.crypto import decrypt_registration_payload, get_public_key_pem
 from app.database import AuthLog, AuthSession, PufDevice, RefreshToken, User
 from app.deps import CurrentUser, DbSession
 from app.services.auth_service import (
@@ -94,6 +95,15 @@ def _session_expired(session: AuthSession) -> bool:
     return datetime.utcnow() > session.created_at + timedelta(minutes=SESSION_TTL_MINUTES)
 
 
+def _require_session_step(session: AuthSession, *allowed: str) -> None:
+    """Ensure login flow steps are completed in order (OTP before PUF, etc.)."""
+    if session.step not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Complete the previous login step first (verify OTP before device authentication)",
+        )
+
+
 def _complete_login(
     user: User,
     session: AuthSession,
@@ -117,6 +127,14 @@ def _complete_login(
     if session_key:
         result["session_key_preview"] = session_key[:16] + "..."
     return result
+
+
+class EncryptedSignupRequest(BaseModel):
+    """Hybrid-encrypted registration envelope from the frontend."""
+
+    encrypted_key: str = Field(..., description="Base64 RSA-OAEP-encrypted AES key")
+    iv: str = Field(..., description="Base64 12-byte AES-GCM nonce")
+    ciphertext: str = Field(..., description="Base64 AES-GCM ciphertext of JSON payload")
 
 
 class SignupRequest(BaseModel):
@@ -174,8 +192,28 @@ def _generate_account_number(payload: SignupRequest) -> str:
     return digits[:12].rjust(12, "0")
 
 
+@router.get("/public-key")
+def get_server_public_key() -> dict:
+    """Return the server RSA-4096 public key in PEM format for encrypted registration."""
+    return {"public_key_pem": get_public_key_pem()}
+
+
 @router.post("/signup")
-def signup(payload: SignupRequest, request: Request, db: DbSession) -> dict:
+def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSession) -> dict:
+    try:
+        raw = decrypt_registration_payload(
+            encrypted_payload.encrypted_key,
+            encrypted_payload.iv,
+            encrypted_payload.ciphertext,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Payload decryption failed: {exc}") from exc
+
+    try:
+        payload = SignupRequest(**raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid registration data: {exc}") from exc
+
     if db.query(User).filter(
         (User.email == payload.email) | (User.phone == payload.phone) | (User.username == payload.username)
     ).first():
@@ -367,6 +405,7 @@ def login_resend_otp(payload: SessionRequest, request: Request, db: DbSession) -
     session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
     if not session or _session_expired(session):
         raise HTTPException(status_code=400, detail="Invalid or expired session")
+    _require_session_step(session, "otp_pending")
 
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user:
@@ -404,10 +443,17 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, response: Resp
     session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
     if not session or _session_expired(session):
         raise HTTPException(status_code=400, detail="Invalid or expired session")
+    _require_session_step(session, "puf_pending")
 
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user or not user.puf_enabled:
         raise HTTPException(status_code=400, detail="PUF not required")
+
+    if user.puf_mode == "hardware":
+        raise HTTPException(
+            status_code=400,
+            detail="Hardware PUF uses device MFA proof — call /login/verify-puf-hardware instead",
+        )
 
     device = db.query(PufDevice).filter_by(user_id=user.id).first()
     if not device:
@@ -443,12 +489,65 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, response: Resp
     return result
 
 
+@router.post("/login/verify-puf-hardware")
+def login_verify_puf_hardware(payload: SessionRequest, request: Request, response: Response, db: DbSession) -> dict:
+    """Hardware ESP32-C6 MFA: backend drives MFA:AUTH + HMAC proof over serial."""
+    from app.services import esp32_mfa_bridge
+
+    session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
+    if not session or _session_expired(session):
+        raise HTTPException(status_code=400, detail="Invalid or expired session")
+    _require_session_step(session, "puf_pending")
+
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user or not user.puf_enabled or user.puf_mode != "hardware":
+        raise HTTPException(status_code=400, detail="Hardware PUF not required")
+
+    device = db.query(PufDevice).filter_by(user_id=user.id).first()
+    if not device or not device.device_pubkey_hex:
+        raise HTTPException(status_code=400, detail="No hardware PUF device enrolled")
+
+    try:
+        proof_meta = esp32_mfa_bridge.authenticate_device(
+            None,
+            session.id,
+            user.id,
+            device.device_pubkey_hex,
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"ESP32 not connected: {exc}") from exc
+    except (TimeoutError, RuntimeError, ValueError) as exc:
+        _log_auth(db, user.id, "login", "puf", "failed", request, {"session_id": session.id, "error": str(exc)})
+        _emit("auth_step", step="puf", status="failed", session_id=session.id)
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id, **proof_meta})
+    _emit("auth_step", step="puf", status="success", session_id=session.id)
+    key = derive_session_key(session.challenge, device.device_pubkey_hex, session.nonce)
+    result = _complete_login(user, session, db, response, session_key=key)
+    result["puf_verification"] = {
+        "verified": True,
+        "puf_mode": "hardware",
+        "device_label": device.device_label,
+        "device_status": proof_meta.get("device_status"),
+        "pubkey_match": proof_meta.get("pubkey_match"),
+        "live_pubkey_hex": proof_meta.get("live_pubkey_hex"),
+        "stored_pubkey_hex": proof_meta.get("stored_pubkey_hex"),
+        "elapsed_s": proof_meta.get("elapsed_s"),
+        "login_id": proof_meta.get("login_id"),
+        "session_key": key,
+        "nonce": session.nonce,
+    }
+    return result
+
+
 @router.post("/login/puf-read")
-def login_puf_read(payload: OtpVerifyRequest, db: DbSession) -> dict:
+def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
     """Read PUF response from bridge for demo — shows challenge/response before verify."""
     session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
     if not session or _session_expired(session):
         raise HTTPException(status_code=400, detail="Invalid or expired session")
+    _require_session_step(session, "puf_pending")
 
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user or not user.puf_enabled:
@@ -457,6 +556,30 @@ def login_puf_read(payload: OtpVerifyRequest, db: DbSession) -> dict:
     device = db.query(PufDevice).filter_by(user_id=user.id).first()
     if not device:
         raise HTTPException(status_code=400, detail="No PUF device enrolled")
+
+    if user.puf_mode == "hardware":
+        from app.services import esp32_mfa_bridge
+
+        try:
+            precheck = esp32_mfa_bridge.hardware_login_precheck(device.device_pubkey_hex)
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail=f"ESP32 not connected: {exc}") from exc
+        except (TimeoutError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        return {
+            "session_id": session.id,
+            "puf_mode": "hardware",
+            "device_label": device.device_label,
+            "secret_identifier": device.secret_identifier,
+            "device_status": precheck["device_status"],
+            "live_pubkey_hex": precheck.get("live_pubkey_hex"),
+            "stored_pubkey_hex": precheck.get("stored_pubkey_hex"),
+            "pubkey_match": precheck.get("pubkey_match"),
+            "ready_for_auth": precheck.get("ready_for_auth"),
+            "nonce": session.nonce,
+            "message": "Plug ESP32-C6 into the server PC via USB, then authenticate",
+        }
 
     try:
         response = read_puf(session.challenge, user.puf_mode)
@@ -494,6 +617,27 @@ def login_puf_read(payload: OtpVerifyRequest, db: DbSession) -> dict:
 @router.post("/signup/puf-preview")
 def signup_puf_preview(payload: PufPreviewRequest) -> dict:
     """Preview PUF read + identifier before signup completion."""
+    if payload.mode == "hardware":
+        from app.services import esp32_mfa_bridge
+
+        try:
+            online, status, error = esp32_mfa_bridge.hardware_device_online()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"ESP32 unavailable: {exc}") from exc
+
+        if not online:
+            raise HTTPException(
+                status_code=503,
+                detail=error or f"ESP32 not responding on {settings.hardware_puf_serial_port}",
+            )
+
+        return {
+            "mode": "hardware",
+            "device_status": status,
+            "message": "ESP32-C6 must be connected to the PC running the backend at signup time",
+            "secret_identifier": "Generated after account creation",
+        }
+
     challenge = generate_nonce(32)
     try:
         response = read_puf(challenge, payload.mode)
@@ -514,13 +658,21 @@ def signup_puf_preview(payload: PufPreviewRequest) -> dict:
 @router.post("/login/verify-puf-auto")
 def login_verify_puf_auto(payload: OtpVerifyRequest, request: Request, http_response: Response, db: DbSession) -> dict:
     """Dev helper: read PUF response from bridge and verify in one step."""
+    if settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
     session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
     if not session or _session_expired(session):
         raise HTTPException(status_code=400, detail="Invalid or expired session")
+    _require_session_step(session, "puf_pending")
 
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user or not user.puf_enabled:
         raise HTTPException(status_code=400, detail="PUF not required")
+
+    if user.puf_mode == "hardware":
+        return login_verify_puf_hardware(
+            SessionRequest(session_id=payload.session_id), request, http_response, db
+        )
 
     puf_response = read_puf(session.challenge, user.puf_mode)
     if not puf_response:

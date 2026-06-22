@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     hardware_puf_serial_port: str = "COM3"
     hardware_puf_baud: int = 115200
     puf_hamming_threshold: int = 5
+    rsa_private_key_path: str = "server_rsa_private.pem"
 
     admin_email: str = "admin@pufbank.dev"
     admin_password: str = "admin"

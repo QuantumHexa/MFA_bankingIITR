@@ -36,22 +36,27 @@ export default function AdminPage() {
     is_active: true,
   });
 
+  const [loadError, setLoadError] = useState("");
+
   const loadData = () => {
     const token = authStore.getToken();
     if (!token || user?.role !== "admin") return;
+    setLoadError("");
     Promise.all([
       api.adminStats(token),
       api.adminUsers(token),
       api.adminLogs(token),
       api.adminAnalytics(token),
       api.adminPufStatus(token),
-    ]).then(([s, u, l, a, p]) => {
-      setStats(s);
-      setUsers(u.users);
-      setLogs(l.logs);
-      setAnalytics(a);
-      setPufStatus(p);
-    });
+    ])
+      .then(([s, u, l, a, p]) => {
+        setStats(s);
+        setUsers(u.users);
+        setLogs(l.logs);
+        setAnalytics(a);
+        setPufStatus(p);
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Failed to load admin data"));
   };
 
   useEffect(() => {
@@ -87,6 +92,10 @@ export default function AdminPage() {
     const token = authStore.getToken();
     if (!token) return;
     const res = await fetch(api.exportLogsUrl(), { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      setAttackResult({ attack: "export", result: "ERROR", explanation: "Export failed" });
+      return;
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -182,6 +191,12 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {loadError && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+            {loadError}
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {statCards.map((s) => (
             <div key={s.label} className="bank-card rounded-xl p-5">
@@ -201,7 +216,7 @@ export default function AdminPage() {
               <p className="text-xs text-[var(--muted)]">{pufStatus.virtual.host}:{pufStatus.virtual.port}</p>
             </div>
             <div className="bank-card rounded-xl p-4">
-              <p className="text-xs text-[var(--muted)]">Hardware PUF (CMOD A7)</p>
+              <p className="text-xs text-[var(--muted)]">Hardware PUF (ESP32-C6)</p>
               <p className={`mt-1 font-semibold ${pufStatus.hardware.online ? "text-[var(--success)]" : "text-red-500"}`}>
                 {pufStatus.hardware.online ? "Connected" : "Not connected"}
               </p>
