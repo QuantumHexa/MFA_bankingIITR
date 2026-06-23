@@ -210,6 +210,10 @@ def _ensure_sqlite_columns() -> None:
         user_cols_refresh = {row[1] for row in db.execute(text("PRAGMA table_info(users)")).fetchall()}
         if "site_auth_phrase" not in user_cols_refresh:
             db.execute(text("ALTER TABLE users ADD COLUMN site_auth_phrase VARCHAR(80)"))
+        else:
+            db.execute(
+                text("UPDATE users SET site_auth_phrase = 'fine for me' WHERE site_auth_phrase IS NULL AND role != 'admin'")
+            )
 
         db.commit()
     finally:

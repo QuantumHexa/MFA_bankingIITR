@@ -1,10 +1,1 @@
-{
-  "CUST10042": {
-    "device_pubkey": "c54acc0643706d1a90843f24193faf65355d2ea3e7179d4c4fe5289b1352a70c",
-    "enrolled_at": "2026-06-19T16:47:48Z"
-  },
-  "TEST_COM3": {
-    "device_pubkey": "c54acc0643706d1a90843f24193faf65355d2ea3e7179d4c4fe5289b1352a70c",
-    "enrolled_at": "2026-06-19T16:52:41Z"
-  }
-}
+﻿{"devices":{}}
