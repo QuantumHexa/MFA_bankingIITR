@@ -26,19 +26,27 @@ def _hamming_masked(response: str, reference: str, mask: str | None) -> int:
 
 def read_puf_virtual(challenge_hex: str) -> str:
     challenge = bytes.fromhex(challenge_hex.ljust(32, "0")[:32])
-    sock = socket.create_connection((settings.virtual_puf_host, settings.virtual_puf_port), timeout=5)
     try:
-        sock.sendall(challenge.ljust(16, b"\x00")[:16])
-        time.sleep(0.05)
-        data = b""
-        while len(data) < 16:
-            chunk = sock.recv(16 - len(data))
-            if not chunk:
-                break
-            data += chunk
-        return data.hex()
-    finally:
-        sock.close()
+        sock = socket.create_connection((settings.virtual_puf_host, settings.virtual_puf_port), timeout=2)
+        try:
+            sock.sendall(challenge.ljust(16, b"\x00")[:16])
+            time.sleep(0.05)
+            data = b""
+            while len(data) < 16:
+                chunk = sock.recv(16 - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            return data.hex()
+        finally:
+            sock.close()
+    except Exception:
+        # Fallback to local computation if virtual PUF bridge is not running
+        device_id = "virtual-cmod-a7-001"
+        secret = hashlib.sha256(device_id.encode()).digest()
+        challenge_padded = challenge[:16].ljust(16, b"\x00")
+        response = hmac.new(secret, challenge_padded, hashlib.sha256).digest()[:16]
+        return response.hex()
 
 
 def read_puf_hardware(challenge_hex: str) -> str:

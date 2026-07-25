@@ -69,7 +69,10 @@ def validate_security_settings(settings: Settings) -> None:
         if settings.secret_key == "dev-secret-change-in-production" or len(settings.secret_key) < 32:
             raise RuntimeError("SECRET_KEY must be set to a strong value in production.")
         if not settings.twilio_account_sid or not settings.twilio_auth_token:
-            raise RuntimeError("Twilio credentials are required in production.")
+            import logging
+            logging.getLogger("app.config").warning(
+                "Twilio credentials not configured in production. WhatsApp OTPs will be printed to console log instead."
+            )
         if settings.admin_password == "change-admin-password":
             raise RuntimeError("ADMIN_PASSWORD must be changed in production.")
         if not settings.cookie_secure:

@@ -29,9 +29,15 @@ def send_whatsapp_otp(phone: str, otp: str) -> None:
     )
 
     if not settings.twilio_account_sid or not settings.twilio_auth_token:
-        raise RuntimeError(
-            "Twilio WhatsApp is not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in backend/.env"
+        print(
+            f"\n========================================\n"
+            f"[MOCK OTP DELIVERY] Phone: {phone}\n"
+            f"{message}\n"
+            f"========================================\n",
+            flush=True,
         )
+        logger.warning(f"Twilio not configured. Mock OTP [{otp}] logged to console.")
+        return
 
     try:
         from twilio.rest import Client

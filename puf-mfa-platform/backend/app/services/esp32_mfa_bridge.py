@@ -348,7 +348,8 @@ def hardware_login_precheck(stored_pubkey_hex: str | None, port: str | None = No
         live_pubkey_hex = None
         pubkey_match = False
         if status in ("puf_ready", "mfa_enrolled"):
-            live_pubkey_hex = _fetch_live_device_pubkey(ser)
+            live_pubkey = _fetch_live_device_pubkey(ser)
+            live_pubkey_hex = live_pubkey.hex()
             if stored_pubkey_hex:
                 pubkey_match = live_pubkey_hex.lower() == stored_pubkey_hex.lower()
 
