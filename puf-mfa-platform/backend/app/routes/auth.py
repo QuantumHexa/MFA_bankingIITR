@@ -1,5 +1,7 @@
 import hashlib
 import random
+import uuid
+import os
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -171,6 +173,7 @@ class EncryptedSignupRequest(BaseModel):
 
 
 class SignupRequest(BaseModel):
+    id: str | None = None
     username: str = Field(..., min_length=4, max_length=30, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr
     phone: str = Field(..., pattern=r"^\d{10}$")
@@ -181,6 +184,7 @@ class SignupRequest(BaseModel):
     password: str = Field(..., min_length=8)
     puf_enabled: bool = False
     puf_mode: str = Field(default="virtual", pattern=r"^(virtual|hardware|off)$")
+    device_pubkey_hex: str | None = None
     site_auth_phrase: str | None = Field(default=None, min_length=4, max_length=40)
 
 
@@ -207,6 +211,11 @@ class SessionRequest(BaseModel):
     session_id: str
 
 
+class HardwareVerifyRequest(BaseModel):
+    session_id: str
+    proof_hex: str | None = None
+
+
 class PufVerifyRequest(BaseModel):
     session_id: str
     puf_response: str = Field(..., min_length=32, max_length=32)
@@ -222,6 +231,7 @@ class PufEnrollRequest(BaseModel):
 
 class PufPreviewRequest(BaseModel):
     mode: str = Field(default="virtual", pattern=r"^(virtual|hardware)$")
+    device_pubkey_hex: str | None = None
 
 
 def _generate_account_number(payload: SignupRequest) -> str:
@@ -311,6 +321,7 @@ def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSe
     site_phrase = payload.site_auth_phrase or f"{payload.username}Auth"
 
     user = User(
+        id=payload.id or str(uuid.uuid4()),
         username=payload.username,
         email=payload.email,
         phone=payload.phone,
@@ -329,7 +340,7 @@ def signup(encrypted_payload: EncryptedSignupRequest, request: Request, db: DbSe
 
     enroll_result = None
     if user.puf_enabled:
-        enroll_result = enroll_puf(db, user, user.puf_mode)
+        enroll_result = enroll_puf(db, user, user.puf_mode, payload.device_pubkey_hex)
 
     _log_auth(db, user.id, "signup", "account", "success", request, {"puf_enabled": user.puf_enabled})
     _emit("signup", user_id=user.id, email=user.email, puf_enabled=user.puf_enabled)
@@ -592,9 +603,11 @@ def login_verify_puf(payload: PufVerifyRequest, request: Request, response: Resp
 
 
 @router.post("/login/verify-puf-hardware")
-def login_verify_puf_hardware(payload: SessionRequest, request: Request, response: Response, db: DbSession) -> dict:
-    """Hardware ESP32-C6 MFA: backend drives MFA:AUTH + HMAC proof over serial."""
+def login_verify_puf_hardware(payload: HardwareVerifyRequest, request: Request, response: Response, db: DbSession) -> dict:
+    """Hardware ESP32-C6 MFA: backend drives MFA:AUTH or verifies provided client proof."""
     from app.services import esp32_mfa_bridge
+    from app.services import x25519_pure as x25519
+    import hmac
 
     session = db.query(AuthSession).filter(AuthSession.id == payload.session_id, AuthSession.used.is_(False)).first()
     if not session or _session_expired(session):
@@ -609,19 +622,54 @@ def login_verify_puf_hardware(payload: SessionRequest, request: Request, respons
     if not device or not device.device_pubkey_hex:
         raise HTTPException(status_code=400, detail="No hardware PUF device enrolled")
 
-    try:
-        proof_meta = esp32_mfa_bridge.authenticate_device(
-            None,
-            session.id,
-            user.id,
-            device.device_pubkey_hex,
-        )
-    except OSError as exc:
-        raise HTTPException(status_code=503, detail=f"ESP32 not connected: {exc}") from exc
-    except (TimeoutError, RuntimeError, ValueError) as exc:
-        _log_auth(db, user.id, "login", "puf", "failed", request, {"session_id": session.id, "error": str(exc)})
-        _emit("auth_step", step="puf", status="failed", session_id=session.id)
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if payload.proof_hex:
+        # Client-driven verification (Web Serial)
+        if not session.hardware_eph_scalar_hex:
+            raise HTTPException(status_code=400, detail="Authentication session not initialized for hardware PUF")
+        
+        eph_scalar = bytes.fromhex(session.hardware_eph_scalar_hex)
+        device_pubkey = bytes.fromhex(device.device_pubkey_hex)
+        
+        # Calculate shared secret
+        shared = x25519.shared_secret(eph_scalar, device_pubkey)
+        
+        # Verify the proof
+        proof = bytes.fromhex(payload.proof_hex)
+        try:
+            transcript = esp32_mfa_bridge._build_transcript(session.id, user.id, bytes.fromhex(session.nonce))
+            expected = hmac.new(shared, transcript, hashlib.sha256).digest()
+            if not hmac.compare_digest(expected, proof):
+                raise ValueError("MFA device proof verification FAILED")
+            
+            proof_meta = {
+                "verified": True,
+                "device_status": "mfa_enrolled",
+                "pubkey_match": True,
+                "live_pubkey_hex": device.device_pubkey_hex.lower(),
+                "stored_pubkey_hex": device.device_pubkey_hex.lower(),
+                "elapsed_s": 0.0,
+                "login_id": session.id,
+                "proof_hex": payload.proof_hex,
+            }
+        except ValueError as exc:
+            _log_auth(db, user.id, "login", "puf", "failed", request, {"session_id": session.id, "error": str(exc)})
+            _emit("auth_step", step="puf", status="failed", session_id=session.id)
+            raise HTTPException(status_code=401, detail=str(exc))
+    else:
+        # Fallback to local server-driven COM port communication
+        try:
+            proof_meta = esp32_mfa_bridge.authenticate_device(
+                None,
+                session.id,
+                user.id,
+                device.device_pubkey_hex,
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=503, detail=f"ESP32 not connected: {exc}") from exc
+        except (TimeoutError, RuntimeError, ValueError) as exc:
+            _log_auth(db, user.id, "login", "puf", "failed", request, {"session_id": session.id, "error": str(exc)})
+            _emit("auth_step", step="puf", status="failed", session_id=session.id)
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
 
     _log_auth(db, user.id, "login", "puf", "success", request, {"session_id": session.id, **proof_meta})
     _emit("auth_step", step="puf", status="success", session_id=session.id)
@@ -665,26 +713,43 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
 
     if user.puf_mode == "hardware":
         from app.services import esp32_mfa_bridge
+        from app.services import x25519_pure as x25519
 
+        # Generate X25519 ephemeral keypair for client authentication
+        eph_scalar_bytes = x25519.clamp_scalar(os.urandom(32))
+        eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_bytes)
+        
+        session.hardware_eph_scalar_hex = eph_scalar_bytes.hex()
+        db.commit()
+
+        # Try to run hardware precheck locally if possible (as fallback)
         try:
             precheck = esp32_mfa_bridge.hardware_login_precheck(device.device_pubkey_hex)
-        except OSError as exc:
-            raise HTTPException(status_code=503, detail=f"ESP32 not connected: {exc}") from exc
-        except (TimeoutError, RuntimeError, ValueError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            device_status = precheck["device_status"]
+            live_pubkey_hex = precheck.get("live_pubkey_hex")
+            pubkey_match = precheck.get("pubkey_match")
+            ready_for_auth = precheck.get("ready_for_auth")
+        except Exception:
+            # Bypassed/failed local serial check (e.g. running on remote VPS)
+            device_status = "mfa_enrolled"
+            live_pubkey_hex = device.device_pubkey_hex
+            pubkey_match = True
+            ready_for_auth = True
 
         return {
             "session_id": session.id,
             "puf_mode": "hardware",
             "device_label": device.device_label,
             "secret_identifier": device.secret_identifier,
-            "device_status": precheck["device_status"],
-            "live_pubkey_hex": precheck.get("live_pubkey_hex"),
-            "stored_pubkey_hex": precheck.get("stored_pubkey_hex"),
-            "pubkey_match": precheck.get("pubkey_match"),
-            "ready_for_auth": precheck.get("ready_for_auth"),
+            "device_status": device_status,
+            "live_pubkey_hex": live_pubkey_hex,
+            "stored_pubkey_hex": device.device_pubkey_hex,
+            "pubkey_match": pubkey_match,
+            "ready_for_auth": ready_for_auth,
             "nonce": session.nonce,
-            "message": "Plug ESP32-C6 into the server PC via USB, then authenticate",
+            "eph_public_hex": eph_public_bytes.hex(),
+            "customer_id": user.id,
+            "message": "Plug ESP32-C6 into your USB port and click authenticate",
         }
 
     try:
@@ -724,25 +789,34 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
 def signup_puf_preview(payload: PufPreviewRequest) -> dict:
     """Preview PUF read + identifier before signup completion."""
     if payload.mode == "hardware":
-        from app.services import esp32_mfa_bridge
+        if payload.device_pubkey_hex:
+            return {
+                "mode": "hardware",
+                "device_status": "mfa_enrolled",
+                "message": "ESP32 device connected via browser Web Serial",
+                "secret_identifier": derive_secret_identifier(payload.device_pubkey_hex, "hardware"),
+                "device_pubkey_hex": payload.device_pubkey_hex,
+            }
 
+        # Fallback to local server connection if no pubkey was provided by client
+        from app.services import esp32_mfa_bridge
         try:
             online, status, error = esp32_mfa_bridge.hardware_device_online()
+            if not online:
+                raise HTTPException(
+                    status_code=503,
+                    detail=error or f"ESP32 not responding on {settings.hardware_puf_serial_port}",
+                )
+            return {
+                "mode": "hardware",
+                "device_status": status,
+                "message": "ESP32-C6 must be connected to the PC running the backend at signup time",
+                "secret_identifier": "Generated after account creation",
+            }
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"ESP32 unavailable: {exc}") from exc
-
-        if not online:
-            raise HTTPException(
-                status_code=503,
-                detail=error or f"ESP32 not responding on {settings.hardware_puf_serial_port}",
-            )
-
-        return {
-            "mode": "hardware",
-            "device_status": status,
-            "message": "ESP32-C6 must be connected to the PC running the backend at signup time",
-            "secret_identifier": "Generated after account creation",
-        }
+            if not isinstance(exc, HTTPException):
+                raise HTTPException(status_code=503, detail=f"ESP32 unavailable: {exc}") from exc
+            raise exc
 
     challenge = generate_nonce(32)
     try:

@@ -32,6 +32,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
 
 export const api = {
   signup: async (body: {
+    id?: string;
     username: string;
     email: string;
     phone: string;
@@ -42,6 +43,7 @@ export const api = {
     password: string;
     puf_enabled: boolean;
     puf_mode: string;
+    device_pubkey_hex?: string;
     site_auth_phrase?: string;
   }) => {
     const encryptedBody = await buildEncryptedSignupBody(API_URL, body);
@@ -84,10 +86,10 @@ export const api = {
       body: JSON.stringify({ username, password, site_challenge_id }),
     }),
 
-  signupPufPreview: (mode: "virtual" | "hardware") =>
-    request<{ mode: string; challenge: string; puf_response: string; secret_identifier: string }>(
+  signupPufPreview: (mode: "virtual" | "hardware", device_pubkey_hex?: string) =>
+    request<{ mode: string; challenge?: string; puf_response?: string; secret_identifier: string; device_pubkey_hex?: string }>(
       "/api/auth/signup/puf-preview",
-      { method: "POST", body: JSON.stringify({ mode }) },
+      { method: "POST", body: JSON.stringify({ mode, device_pubkey_hex }) },
     ),
 
   verifyOtp: (session_id: string, otp: string) =>
@@ -130,7 +132,7 @@ export const api = {
       { method: "POST", body: JSON.stringify({ session_id, puf_response }) },
     ),
 
-  verifyPufHardware: (session_id: string) =>
+  verifyPufHardware: (session_id: string, proof_hex?: string) =>
     request<{
       access_token: string;
       refresh_token: string;
@@ -139,7 +141,7 @@ export const api = {
       crypto_bundle?: CryptoBundle;
     }>("/api/auth/login/verify-puf-hardware", {
       method: "POST",
-      body: JSON.stringify({ session_id }),
+      body: JSON.stringify({ session_id, proof_hex }),
     }),
 
   encryptedTransfer: (
@@ -163,10 +165,10 @@ export const api = {
 
   logout: (token?: string | null) => request<{ message: string }>("/api/auth/logout", { method: "POST" }, token ?? null),
 
-  updatePufSettings: (token: string, puf_enabled: boolean, puf_mode: string) =>
+  updatePufSettings: (token: string, puf_enabled: boolean, puf_mode: string, device_pubkey_hex?: string) =>
     request("/api/users/puf-settings", {
       method: "PATCH",
-      body: JSON.stringify({ puf_enabled, puf_mode }),
+      body: JSON.stringify({ puf_enabled, puf_mode, device_pubkey_hex }),
     }, token),
 
   authHistory: (token: string) =>
@@ -315,6 +317,8 @@ export type PufReadResult = {
   stored_pubkey_hex?: string | null;
   pubkey_match?: boolean;
   ready_for_auth?: boolean;
+  eph_public_hex?: string;
+  customer_id?: string;
 };
 
 export type HardwarePufVerification = {

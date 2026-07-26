@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, api, CryptoBundle, HardwarePufVerification, PufReadResult, PufVerification } from "@/lib/api";
 import { saveCryptoBundle } from "@/lib/sessionCrypto";
+import { WebSerialBridge } from "@/lib/webSerial";
 
 function CryptoField({ label, value }: { label: string; value: string }) {
   return (
@@ -202,13 +203,41 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await api.verifyPufHardware(sessionId);
+      let currentPufData = pufData;
+      if (!currentPufData) {
+        currentPufData = await api.pufRead(sessionId);
+        setPufData(currentPufData);
+      }
+
+      if (!currentPufData.eph_public_hex || !currentPufData.customer_id) {
+        throw new Error("Missing ephemeral key or customer ID from server response");
+      }
+
+      if (!WebSerialBridge.isSupported()) {
+        throw new Error("Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.");
+      }
+
+      const bridge = new WebSerialBridge();
+      await bridge.connect();
+      let proofHex = "";
+      try {
+        proofHex = await bridge.authenticate(
+          sessionId,
+          currentPufData.customer_id,
+          currentPufData.eph_public_hex,
+          currentPufData.nonce
+        );
+      } finally {
+        await bridge.disconnect();
+      }
+
+      const res = await api.verifyPufHardware(sessionId, proofHex);
       setPufVerified(res.puf_verification || null);
       persistCryptoBundle(res.crypto_bundle);
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
-    } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "ESP32 device authentication failed");
+    } catch (e: any) {
+      setError(e instanceof ApiError ? String(e.message) : e.message || "ESP32 device authentication failed");
     } finally {
       setLoading(false);
     }

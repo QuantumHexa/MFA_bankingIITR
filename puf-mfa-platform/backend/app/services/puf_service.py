@@ -142,24 +142,27 @@ def derive_secret_identifier(response: str, mode: str) -> str:
     return f"{digest[:4]}-{digest[4:8]}-{digest[8:12]}"
 
 
-def enroll_puf(db: Session, user: User, mode: str) -> dict:
+def enroll_puf(db: Session, user: User, mode: str, device_pubkey_hex: str | None = None) -> dict:
     import secrets
 
     if mode == "hardware":
-        from app.services import esp32_mfa_bridge
+        if device_pubkey_hex:
+            pubkey_hex = device_pubkey_hex
+        else:
+            from app.services import esp32_mfa_bridge
 
-        try:
-            status = esp32_mfa_bridge.device_status()
-            if status == "puf_not_enrolled":
-                return {
-                    "status": "error",
-                    "message": "ESP32 PUF not enrolled — complete 30-cycle cold-boot enrollment on board",
-                }
-            pubkey_hex = esp32_mfa_bridge.enroll_device(None, user.id)
-        except OSError as exc:
-            return {"status": "error", "message": f"ESP32 serial unavailable: {exc}"}
-        except (TimeoutError, RuntimeError, ValueError) as exc:
-            return {"status": "error", "message": str(exc)}
+            try:
+                status = esp32_mfa_bridge.device_status()
+                if status == "puf_not_enrolled":
+                    return {
+                        "status": "error",
+                        "message": "ESP32 PUF not enrolled — complete 30-cycle cold-boot enrollment on board",
+                    }
+                pubkey_hex = esp32_mfa_bridge.enroll_device(None, user.id)
+            except OSError as exc:
+                return {"status": "error", "message": f"ESP32 serial unavailable: {exc}"}
+            except (TimeoutError, RuntimeError, ValueError) as exc:
+                return {"status": "error", "message": str(exc)}
 
         enrolled = pubkey_hex
         reliability_mask = None

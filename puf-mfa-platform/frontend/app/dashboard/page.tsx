@@ -9,6 +9,7 @@ import { LiveAuthStepper } from "@/components/LiveAuthStepper";
 import { Navbar } from "@/components/Navbar";
 import { ApiError, api, AuthLogEntry } from "@/lib/api";
 import { authStore } from "@/lib/auth-store";
+import { WebSerialBridge } from "@/lib/webSerial";
 import {
   encryptTransaction,
   getOrDeriveRoot,
@@ -45,17 +46,31 @@ export default function DashboardPage() {
 
   const savePufSettings = async () => {
     const token = authStore.getToken();
-    if (!token) return;
+    if (!token || !user) return;
     setSaving(true);
     setMsg("");
     setMsgOk(true);
     try {
-      await api.updatePufSettings(token, pufEnabled, pufMode);
+      let devicePubkeyHex = undefined;
+      if (pufEnabled && pufMode === "hardware") {
+        if (!WebSerialBridge.isSupported()) {
+          throw new Error("Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.");
+        }
+        const bridge = new WebSerialBridge();
+        await bridge.connect();
+        try {
+          devicePubkeyHex = await bridge.enroll(user.id);
+        } finally {
+          await bridge.disconnect();
+        }
+      }
+
+      await api.updatePufSettings(token, pufEnabled, pufMode, devicePubkeyHex);
       await refreshUser();
       setMsg("Security settings saved.");
       setMsgOk(true);
-    } catch (e) {
-      setMsg(e instanceof ApiError ? String(e.message) : "Failed to save");
+    } catch (e: any) {
+      setMsg(e instanceof ApiError ? String(e.message) : e.message || "Failed to save");
       setMsgOk(false);
     } finally {
       setSaving(false);

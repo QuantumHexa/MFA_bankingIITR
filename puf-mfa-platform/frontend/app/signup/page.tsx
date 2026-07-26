@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ArrowLeft, Landmark } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, api } from "@/lib/api";
+import { WebSerialBridge } from "@/lib/webSerial";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -30,6 +31,8 @@ export default function SignupPage() {
     mfa_note: string;
     puf_enrollment?: { status?: string; message?: string; secret_identifier?: string };
   } | null>(null);
+  const [signupId] = useState(() => crypto.randomUUID());
+  const [devicePubkeyHex, setDevicePubkeyHex] = useState("");
   const [secretIdentifier, setSecretIdentifier] = useState("");
   const [readingPuf, setReadingPuf] = useState(false);
 
@@ -40,6 +43,8 @@ export default function SignupPage() {
     try {
       const res = await api.signup({
         ...form,
+        id: signupId,
+        device_pubkey_hex: form.puf_mode === "hardware" ? devicePubkeyHex : undefined,
         site_auth_phrase: form.site_auth_phrase || `${form.username}Auth`,
       });
       setCreated({
@@ -64,10 +69,26 @@ export default function SignupPage() {
     setReadingPuf(true);
     try {
       const mode = (form.puf_mode as "virtual" | "hardware") || "virtual";
-      const preview = await api.signupPufPreview(mode);
-      setSecretIdentifier(preview.secret_identifier);
-    } catch (err) {
-      setError(err instanceof ApiError ? String(err.message) : "Could not read PUF");
+      if (mode === "hardware") {
+        if (!WebSerialBridge.isSupported()) {
+          throw new Error("Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.");
+        }
+        const bridge = new WebSerialBridge();
+        await bridge.connect();
+        try {
+          const pubkey = await bridge.enroll(signupId);
+          setDevicePubkeyHex(pubkey);
+          const preview = await api.signupPufPreview("hardware", pubkey);
+          setSecretIdentifier(preview.secret_identifier);
+        } finally {
+          await bridge.disconnect();
+        }
+      } else {
+        const preview = await api.signupPufPreview(mode);
+        setSecretIdentifier(preview.secret_identifier);
+      }
+    } catch (err: any) {
+      setError(err instanceof ApiError ? String(err.message) : err.message || "Could not read PUF");
     } finally {
       setReadingPuf(false);
     }
@@ -206,7 +227,7 @@ export default function SignupPage() {
                     </label>
                     {form.puf_mode === "hardware" && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">
-                        ESP32-C6 must be connected to the PC running the backend at signup time.
+                        Connect ESP32-C6 via USB, click Read PUF, and select the device serial port.
                       </p>
                     )}
                     <button type="button" onClick={readPufSecret} className="btn-outline text-sm" disabled={readingPuf}>

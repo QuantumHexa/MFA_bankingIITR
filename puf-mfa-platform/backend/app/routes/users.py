@@ -11,6 +11,7 @@ router = APIRouter()
 class PufToggleRequest(BaseModel):
     puf_enabled: bool
     puf_mode: str = Field(default="virtual", pattern=r"^(virtual|hardware|off)$")
+    device_pubkey_hex: str | None = None
 
 
 @router.patch("/puf-settings")
@@ -21,7 +22,7 @@ def update_puf_settings(payload: PufToggleRequest, db: DbSession, user: CurrentU
 
     enroll_result = None
     if user.puf_enabled:
-        enroll_result = enroll_puf(db, user, user.puf_mode)
+        enroll_result = enroll_puf(db, user, user.puf_mode, payload.device_pubkey_hex)
 
     return {
         "user_id": user.id,
