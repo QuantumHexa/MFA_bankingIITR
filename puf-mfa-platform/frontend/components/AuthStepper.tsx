@@ -1,61 +1,60 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { CheckCircle2, Cpu, KeyRound, MessageCircle, ShieldCheck } from "lucide-react";
 
 const steps = [
   { id: 1, label: "Password", icon: KeyRound, status: "done" as const },
-  { id: 2, label: "WhatsApp OTP", icon: MessageCircle, status: "active" as const },
-  { id: 3, label: "PUF Device", icon: Cpu, status: "pending" as const },
+  { id: 2, label: "OTP Verification", icon: MessageCircle, status: "active" as const },
+  { id: 3, label: "Device Check", icon: Cpu, status: "pending" as const },
   { id: 4, label: "Access Granted", icon: ShieldCheck, status: "pending" as const },
 ];
 
 export function AuthStepper() {
   return (
-    <div className="glass rounded-2xl p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-semibold">Live Auth Flow</h3>
-        <span className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-400">
-          WebSocket Connected
+    <div className="bank-card p-5">
+      <div className="mb-4 flex items-center justify-between border-b border-[var(--border)] pb-3">
+        <h3 className="text-sm font-semibold text-[var(--text)]">Authentication Flow</h3>
+        <span className="status-label">
+          <span className="status-dot bg-[var(--success)]" />
+          Connected
         </span>
       </div>
 
-      <div className="space-y-4">
-        {steps.map((step, i) => {
+      <div className="space-y-1">
+        {steps.map((step) => {
           const Icon = step.icon;
           return (
-            <motion.div
+            <div
               key={step.id}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.15 }}
-              className={`flex items-center gap-4 rounded-xl border p-4 transition-all ${
-                step.status === "active" ? "step-active" : step.status === "done" ? "step-done" : "opacity-50"
+              className={`flex items-center gap-3 px-2 py-2.5 ${
+                step.status === "active"
+                  ? "bg-[var(--primary-subtle)]"
+                  : step.status === "done"
+                    ? "bg-[var(--success-subtle)]"
+                    : ""
               }`}
             >
               <div
-                className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                className={`flex h-8 w-8 items-center justify-center ${
                   step.status === "done"
-                    ? "bg-emerald-400/15 text-emerald-400"
+                    ? "text-[var(--success)]"
                     : step.status === "active"
-                      ? "bg-cyan-400/15 text-cyan-400"
-                      : "bg-white/5 text-[var(--muted)]"
+                      ? "text-[var(--primary)]"
+                      : "text-[var(--text-tertiary)]"
                 }`}
               >
-                {step.status === "done" ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+                {step.status === "done" ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
               </div>
               <div className="flex-1">
-                <p className="font-medium">{step.label}</p>
-                <p className="text-xs text-[var(--muted)]">
+                <p className="text-sm font-medium text-[var(--text)]">{step.label}</p>
+                <p className="text-xs text-[var(--text-tertiary)]">
                   {step.status === "done" && "Verified successfully"}
-                  {step.status === "active" && "Waiting for WhatsApp code..."}
+                  {step.status === "active" && "Waiting for OTP code…"}
                   {step.status === "pending" && "Pending previous step"}
                 </p>
               </div>
-              {step.status === "active" && (
-                <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400 shadow-neon" />
-              )}
-            </motion.div>
+              {step.status === "active" && <span className="status-dot animate-pulse bg-[var(--primary)]" />}
+            </div>
           );
         })}
       </div>

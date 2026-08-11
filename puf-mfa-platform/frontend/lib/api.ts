@@ -339,4 +339,7 @@ export type PufStatus = {
   virtual: { online: boolean; host: string; port: number; error: string };
   hardware: { online: boolean; port: string; baud: number; status?: string; error: string };
   twilio_configured: boolean;
+  email_otp_configured?: boolean;
+  otp_delivery?: string;
+  otp_email_provider?: string;
 };

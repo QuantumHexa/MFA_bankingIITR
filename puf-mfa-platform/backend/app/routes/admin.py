@@ -80,6 +80,18 @@ def puf_status(_: AdminUser) -> dict:
             "error": hardware_error,
         },
         "twilio_configured": bool(settings.twilio_account_sid and settings.twilio_auth_token),
+        "email_otp_configured": bool(
+            (settings.smtp_username and settings.smtp_password)
+            or (settings.sendgrid_api_key and settings.otp_email_from)
+        ),
+        "otp_delivery": "email",
+        "otp_email_provider": (
+            "smtp"
+            if (settings.smtp_username and settings.smtp_password)
+            else "sendgrid"
+            if (settings.sendgrid_api_key and settings.otp_email_from)
+            else "mock"
+        ),
     }
 
 

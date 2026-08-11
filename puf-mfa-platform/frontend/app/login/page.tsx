@@ -12,8 +12,8 @@ import { WebSerialBridge } from "@/lib/webSerial";
 
 function CryptoField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-left">
-      <p className="text-xs font-medium text-[var(--muted)]">{label}</p>
+    <div className="rounded-md border border-[var(--border)] bg-[var(--bg-subtle)] p-3 text-left">
+      <p className="text-xs font-medium text-[var(--text-secondary)]">{label}</p>
       <p className="mt-1 break-all font-mono text-xs text-[var(--primary)]">{value}</p>
     </div>
   );
@@ -78,7 +78,7 @@ export default function LoginPage() {
   const handlePassword = async () => {
     setError("");
     if (!skipSiteAuth && siteChallengeId && !siteConfirmed) {
-      setError("Please verify your Authentication Text displayed above");
+      setError("Please verify your Security Phrase shown above before continuing.");
       return;
     }
     setLoading(true);
@@ -99,7 +99,7 @@ export default function LoginPage() {
       setOtpMessage(res.message);
       setStep(2);
     } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "Invalid username or password");
+      setError(e instanceof ApiError ? String(e.message) : "Invalid credentials. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -148,9 +148,9 @@ export default function LoginPage() {
         setStep(3);
         return;
       }
-      setError("Unexpected login step. Please try again.");
+      setError("Unexpected response. Please try again.");
     } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "Invalid OTP");
+      setError(e instanceof ApiError ? String(e.message) : "Invalid OTP. Please check and try again.");
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ export default function LoginPage() {
       const res = await api.resendOtp(sessionId);
       setOtpMessage(res.message);
     } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "Could not resend OTP");
+      setError(e instanceof ApiError ? String(e.message) : "Could not resend OTP. Please try again.");
     } finally {
       setResendingOtp(false);
     }
@@ -176,7 +176,7 @@ export default function LoginPage() {
       const res = await api.pufRead(sessionId);
       setPufData(res);
     } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "Could not read PUF device");
+      setError(e instanceof ApiError ? String(e.message) : "Could not connect to security device.");
     } finally {
       setLoading(false);
     }
@@ -193,7 +193,7 @@ export default function LoginPage() {
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e) {
-      setError(e instanceof ApiError ? String(e.message) : "PUF verification failed");
+      setError(e instanceof ApiError ? String(e.message) : "Device verification failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -210,11 +210,11 @@ export default function LoginPage() {
       }
 
       if (!currentPufData.eph_public_hex || !currentPufData.customer_id) {
-        throw new Error("Missing ephemeral key or customer ID from server response");
+        throw new Error("Missing security parameters. Please try again.");
       }
 
       if (!WebSerialBridge.isSupported()) {
-        throw new Error("Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.");
+        throw new Error("Your browser does not support hardware authentication. Please use Chrome or Edge.");
       }
 
       const bridge = new WebSerialBridge();
@@ -237,49 +237,60 @@ export default function LoginPage() {
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e: any) {
-      setError(e instanceof ApiError ? String(e.message) : e.message || "ESP32 device authentication failed");
+      setError(e instanceof ApiError ? String(e.message) : e.message || "Hardware authentication failed. Please reconnect your device.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen bg-[var(--bg)]">
-      <div className="hidden w-1/2 flex-col justify-between bg-[var(--primary)] p-12 text-white lg:flex">
-        <div className="flex items-center gap-3">
-          <Landmark className="h-7 w-7 text-[var(--accent)]" />
-          <span className="text-lg font-bold">SecureVault Bank</span>
+    <div className="flex min-h-screen">
+      {/* Left branding panel */}
+      <div className="hidden w-[400px] shrink-0 flex-col justify-between bg-[var(--primary)] p-10 lg:flex">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center bg-white/15 text-white">
+            <Landmark className="h-4 w-4" />
+          </div>
+          <div className="leading-tight">
+            <span className="block text-sm font-semibold text-white">SecureVault</span>
+            <span className="block text-[10px] font-medium uppercase tracking-wider text-white/50">
+              Net Banking
+            </span>
+          </div>
         </div>
         <div>
-          <h2 className="text-2xl font-bold">Secure Net Banking</h2>
-          <p className="mt-3 max-w-sm text-sm text-blue-100/70">
-            Login is protected by password, WhatsApp OTP, and optional device authentication.
+          <h2 className="text-2xl font-semibold text-white">Sign in to your account</h2>
+          <p className="mt-3 text-sm leading-relaxed text-white/65">
+            Password, email OTP, and optional device verification keep your banking session secure.
           </p>
         </div>
-        <p className="text-xs text-blue-100/40">Never share your OTP with anyone.</p>
+        <p className="text-xs text-white/40">
+          We will never ask for your OTP by phone or email.
+        </p>
       </div>
 
+      {/* Right — form */}
       <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <div className="w-full max-w-lg">
+        <div className="w-full max-w-md">
           <div className="mb-6 flex items-center justify-between lg:hidden">
             <Link href="/" className="btn-ghost"><ArrowLeft className="h-4 w-4" /> Home</Link>
             <div className="flex items-center gap-2">
-              <Landmark className="h-5 w-5 text-[var(--primary)]" />
-              <span className="text-sm font-bold text-[var(--primary)]">SecureVault</span>
+              <Landmark className="h-4 w-4 text-[var(--primary)]" />
+              <span className="text-sm font-semibold text-[var(--text)]">SecureVault</span>
             </div>
             <ThemeToggle />
           </div>
 
-          <div className="bank-card rounded-2xl p-8">
-            <h1 className="text-xl font-bold text-[var(--primary)]">Sign In</h1>
-            <p className="mt-1 text-sm text-[var(--muted)]">
+          <div className="bank-card p-8">
+            <h1 className="text-xl font-semibold text-[var(--text)]">Sign In</h1>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
               Step {displayStep} of {totalSteps}
             </p>
-            <div className="mt-3 flex gap-1">
+            <div className="mt-4 flex gap-1.5">
               {Array.from({ length: totalSteps }).map((_, i) => (
                 <div
                   key={i}
-                  className={`h-1 flex-1 rounded-full transition-colors ${
+                  className={`h-0.5 flex-1 transition-colors duration-200 ${
                     i < displayStep ? "bg-[var(--primary)]" : "bg-[var(--border)]"
                   }`}
                 />
@@ -287,17 +298,18 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+              <div className="mt-4 rounded-md border border-[var(--error)]/20 bg-[var(--error-subtle)] px-4 py-3 text-sm text-[var(--error)]">
                 {error}
               </div>
             )}
 
             {otpMessage && step === 2 && (
-              <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              <div className="mt-4 rounded-md border border-[var(--success)]/20 bg-[var(--success-subtle)] px-4 py-3 text-sm text-[var(--success)]">
                 {otpMessage}
               </div>
             )}
 
+            {/* Step 0: Username */}
             {step === 0 && (
               <form
                 className="mt-6 space-y-4"
@@ -307,15 +319,16 @@ export default function LoginPage() {
                 }}
               >
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Username</label>
-                  <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="your_username" />
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Customer ID / Username</label>
+                  <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter your username" />
                 </div>
-                <button type="submit" disabled={loading || !username} className="btn-primary w-full disabled:opacity-50">
-                  {loading ? "Loading..." : "Continue"}
+                <button type="submit" disabled={loading || !username} className="btn-primary w-full">
+                  {loading ? "Verifying..." : "Continue"}
                 </button>
               </form>
             )}
 
+            {/* Step 1: Password */}
             {step === 1 && (
               <form
                 className="mt-6 space-y-4"
@@ -325,35 +338,36 @@ export default function LoginPage() {
                 }}
               >
                 {!skipSiteAuth && sitePhrase && (
-                  <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/40">
-                    <p className="text-sm font-medium text-[var(--primary)]">
-                      Verify your Authentication Text to continue
+                  <div className="space-y-3 rounded-md border border-[var(--primary)]/20 bg-[var(--primary-subtle)] p-4">
+                    <p className="text-sm font-medium text-[var(--text)]">
+                      Verify your Security Phrase
                     </p>
-                    <div className="rounded-lg border border-sky-300 bg-white px-4 py-3 text-center dark:border-sky-800 dark:bg-slate-900">
+                    <p className="text-xs text-[var(--text-secondary)]">This phrase confirms you are on the official SecureVault website.</p>
+                    <div className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-4 py-3 text-center">
                       <p className="font-mono text-lg font-semibold tracking-wide text-[var(--primary)]">{sitePhrase}</p>
                     </div>
-                    <label className="flex items-start gap-2 text-sm">
+                    <label className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
                       <input
                         type="checkbox"
                         checked={siteConfirmed}
                         onChange={(e) => setSiteConfirmed(e.target.checked)}
                         className="mt-0.5"
                       />
-                      <span>This is my Authentication Text</span>
+                      <span>I recognise this as my Security Phrase</span>
                     </label>
                   </div>
                 )}
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Password</label>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--text)]">Password</label>
                   <div className="relative">
                     <input
                       className="input-field pr-12"
                       type={showPass ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Password"
+                      placeholder="Enter your password"
                     />
-                    <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">
+                    <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] transition-colors duration-150 hover:text-[var(--text-secondary)]">
                       {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -361,13 +375,14 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || !password || (!skipSiteAuth && !!sitePhrase && !siteConfirmed)}
-                  className="btn-primary w-full disabled:opacity-50"
+                  className="btn-primary w-full"
                 >
-                  {loading ? "Verifying..." : skipSiteAuth ? "Sign In" : "Continue to OTP"}
+                  {loading ? "Verifying..." : skipSiteAuth ? "Sign In" : "Continue"}
                 </button>
               </form>
             )}
 
+            {/* Step 2: OTP */}
             {step === 2 && (
               <form
                 className="mt-6 space-y-4"
@@ -376,8 +391,8 @@ export default function LoginPage() {
                   if (!loading && otp.length === 6) void handleOtp();
                 }}
               >
-                <p className="text-sm text-[var(--muted)]">
-                  Enter the 6-digit OTP sent to your WhatsApp number
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Enter the 6-digit OTP sent to your registered email address.
                 </p>
                 <input
                   className="input-field text-center font-mono text-2xl tracking-[0.4em]"
@@ -386,42 +401,43 @@ export default function LoginPage() {
                   placeholder="000000"
                   maxLength={6}
                 />
-                <button type="submit" disabled={loading || otp.length !== 6} className="btn-primary w-full disabled:opacity-50">
+                <button type="submit" disabled={loading || otp.length !== 6} className="btn-primary w-full">
                   {loading ? "Verifying..." : "Verify OTP"}
                 </button>
-                <button type="button" onClick={handleResendOtp} disabled={resendingOtp || !sessionId} className="btn-outline w-full disabled:opacity-50">
-                  {resendingOtp ? "Resending..." : "Resend OTP"}
+                <button type="button" onClick={handleResendOtp} disabled={resendingOtp || !sessionId} className="btn-outline w-full">
+                  {resendingOtp ? "Sending..." : "Resend OTP"}
                 </button>
               </form>
             )}
 
+            {/* Step 3: Hardware PUF */}
             {step === 3 && isHardwarePuf && (
               <div className="mt-6 space-y-4">
                 <div className="text-center">
-                  <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
-                  <p className="mt-2 font-medium">ESP32-C6 Hardware PUF Authentication</p>
-                  <p className="text-sm text-[var(--muted)]">
-                    Close Thonny/serial monitors, keep ESP32 on USB (COM port), then authenticate
+                  <Cpu className="mx-auto h-10 w-10 text-[var(--primary)]" />
+                  <p className="mt-3 text-sm font-medium text-[var(--text)]">Hardware Device Verification</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Connect your registered security device via USB and click authenticate.
                   </p>
                 </div>
 
                 {loading && (
-                  <p className="text-center text-xs text-[var(--muted)]">
-                    PUF reconstruction may take up to 2 minutes… {hardwareElapsed}s elapsed
+                  <p className="text-center text-xs text-[var(--text-tertiary)]">
+                    Verifying device identity… {hardwareElapsed}s elapsed
                   </p>
                 )}
 
                 {pufData && !pufVerified && (
                   <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
-                      <p className="text-[var(--muted)]">Device status</p>
-                      <p className="font-mono font-medium">{pufData.device_status || "unknown"}</p>
+                    <div className="flex items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-sm">
+                      <span className="text-[var(--text-secondary)]">Device Status</span>
+                      <span className="font-mono font-medium text-[var(--text)]">{pufData.device_status || "unknown"}</span>
                     </div>
                     {pufData.pubkey_match !== undefined && (
-                      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
-                        <span className="text-[var(--muted)]">Stored pubkey match</span>
-                        <span className={`font-bold ${pufData.pubkey_match ? "text-[var(--success)]" : "text-red-500"}`}>
-                          {pufData.pubkey_match ? "Yes" : "No"}
+                      <div className="flex items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-sm">
+                        <span className="text-[var(--text-secondary)]">Device Identity</span>
+                        <span className={`font-medium ${pufData.pubkey_match ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
+                          {pufData.pubkey_match ? "Verified" : "Mismatch"}
                         </span>
                       </div>
                     )}
@@ -429,22 +445,22 @@ export default function LoginPage() {
                 )}
 
                 {!pufVerified && (
-                  <button onClick={handleHardwareAuth} disabled={loading} className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-50">
+                  <button onClick={handleHardwareAuth} disabled={loading} className="btn-primary flex w-full items-center justify-center gap-2">
                     <Key className="h-4 w-4" />
-                    {loading ? "Authenticating with ESP32… (PUF may take up to 2 min)" : "Authenticate with ESP32 Device"}
+                    {loading ? "Authenticating device…" : "Authenticate with Security Device"}
                   </button>
                 )}
 
                 {pufVerified && (
                   <div className="space-y-3 text-center">
-                    <CheckCircle2 className="mx-auto h-14 w-14 text-[var(--success)]" />
-                    <p className="text-lg font-semibold text-[var(--success)]">ESP32 Device Authenticated</p>
-                    <p className="text-sm text-[var(--muted)]">
-                      MFA proof verified
+                    <CheckCircle2 className="mx-auto h-12 w-12 text-[var(--success)]" />
+                    <p className="text-base font-semibold text-[var(--success)]">Device Verified Successfully</p>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      All security checks passed
                       {"elapsed_s" in pufVerified && pufVerified.elapsed_s != null
-                        ? ` in ${pufVerified.elapsed_s}s`
+                        ? ` (${pufVerified.elapsed_s}s)`
                         : ""}
-                      {" · Redirecting to dashboard..."}
+                      {" · Redirecting to your account…"}
                     </p>
                     <CryptoField label="Session Key" value={pufVerified.session_key} />
                   </div>
@@ -452,33 +468,34 @@ export default function LoginPage() {
               </div>
             )}
 
+            {/* Step 3: Virtual PUF */}
             {step === 3 && !isHardwarePuf && (
               <div className="mt-6 space-y-4">
                 <div className="text-center">
-                  <Cpu className="mx-auto h-12 w-12 text-[var(--primary)]" />
-                  <p className="mt-2 font-medium">Virtual PUF Device Authentication</p>
-                  <p className="text-sm text-[var(--muted)]">
-                    Step 1: Read response from virtual PUF bridge · Step 2: Verify & derive session key
+                  <Cpu className="mx-auto h-10 w-10 text-[var(--primary)]" />
+                  <p className="mt-3 text-sm font-medium text-[var(--text)]">Device Authentication</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Verifying your registered security device to complete login.
                   </p>
                 </div>
 
                 {!pufData && !pufVerified && (
-                  <button onClick={handlePufRead} disabled={loading} className="btn-primary w-full disabled:opacity-50">
-                    {loading ? "Contacting PUF bridge..." : "Read PUF Response"}
+                  <button onClick={handlePufRead} disabled={loading} className="btn-primary w-full">
+                    {loading ? "Connecting to device…" : "Verify Security Device"}
                   </button>
                 )}
 
                 {pufData && !pufVerified && (
                   <div className="space-y-3">
-                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
-                      <p className="text-[var(--muted)]">Device: {pufData.device_label}</p>
-                      <p className="font-mono font-medium">{pufData.device_status || "unknown"}</p>
+                    <div className="flex items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-sm">
+                      <span className="text-[var(--text-secondary)]">Device: {pufData.device_label}</span>
+                      <span className="font-mono font-medium text-[var(--text)]">{pufData.device_status || "unknown"}</span>
                     </div>
                     {pufData.challenge && (
                       <button
                         type="button"
                         onClick={() => setShowCryptoDetails(!showCryptoDetails)}
-                        className="flex w-full items-center justify-between text-xs font-medium text-[var(--primary)]"
+                        className="flex w-full items-center justify-between text-xs font-medium text-[var(--primary)] transition-colors duration-150 hover:text-[var(--primary-hover)]"
                       >
                         {showCryptoDetails ? "Hide" : "Show"} technical details
                         {showCryptoDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -488,16 +505,16 @@ export default function LoginPage() {
                       <>
                         {pufData.challenge && <CryptoField label="Server Challenge" value={pufData.challenge} />}
                         <CryptoField label="Session Nonce" value={pufData.nonce} />
-                        {pufData.puf_response && <CryptoField label="PUF Response" value={pufData.puf_response} />}
+                        {pufData.puf_response && <CryptoField label="Device Response" value={pufData.puf_response} />}
                         {pufData.reference_response && <CryptoField label="Reference Response" value={pufData.reference_response} />}
-                        {pufData.secret_identifier && <CryptoField label="Secret Identifier" value={pufData.secret_identifier} />}
+                        {pufData.secret_identifier && <CryptoField label="Device Identifier" value={pufData.secret_identifier} />}
                         {pufData.session_key && <CryptoField label="Derived Session Key" value={pufData.session_key} />}
                       </>
                     )}
                     {pufData.hamming_distance !== undefined && (
-                      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-4 py-3 text-sm">
-                        <span className="text-[var(--muted)]">Hamming distance</span>
-                        <span className={`font-mono font-bold ${pufData.will_verify ? "text-[var(--success)]" : "text-red-500"}`}>
+                      <div className="flex items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-sm">
+                        <span className="text-[var(--text-secondary)]">Device similarity</span>
+                        <span className={`font-mono font-medium ${pufData.will_verify ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
                           {pufData.hamming_distance} bits {pufData.will_verify ? "✓" : "✗"}
                         </span>
                       </div>
@@ -505,14 +522,14 @@ export default function LoginPage() {
                     <button
                       onClick={handlePufVerify}
                       disabled={loading || !pufData.puf_response}
-                      className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-50"
+                      className="btn-primary flex w-full items-center justify-center gap-2"
                     >
                       <Key className="h-4 w-4" />
-                      {loading ? "Verifying..." : "Verify PUF & Complete Login"}
+                      {loading ? "Verifying…" : "Complete Sign In"}
                     </button>
                     {!pufData.will_verify && pufData.puf_response && (
                       <button type="button" onClick={handlePufRead} disabled={loading} className="btn-outline w-full text-sm">
-                        Re-read PUF device
+                        Retry device verification
                       </button>
                     )}
                   </div>
@@ -520,20 +537,20 @@ export default function LoginPage() {
 
                 {pufVerified && (
                   <div className="space-y-3 text-center">
-                    <CheckCircle2 className="mx-auto h-14 w-14 text-[var(--success)]" />
-                    <p className="text-lg font-semibold text-[var(--success)]">PUF Verified Successfully</p>
-                    <p className="text-sm text-[var(--muted)]">
-                      Device authenticated · Session key derived · Redirecting to dashboard...
+                    <CheckCircle2 className="mx-auto h-12 w-12 text-[var(--success)]" />
+                    <p className="text-base font-semibold text-[var(--success)]">Identity Verified</p>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      All security checks passed · Redirecting to your account…
                     </p>
-                    <CryptoField label="Final Session Key" value={pufVerified.session_key} />
+                    <CryptoField label="Session Key" value={pufVerified.session_key} />
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          <p className="mt-4 text-center text-sm text-[var(--muted)]">
-            No account? <Link href="/signup" className="font-medium text-[var(--primary)] hover:underline">Sign up</Link>
+          <p className="mt-5 text-center text-sm text-[var(--text-secondary)]">
+            Don&apos;t have an account? <Link href="/signup" className="font-medium text-[var(--primary)] transition-colors duration-150 hover:text-[var(--primary-hover)]">Open an account</Link>
           </p>
         </div>
       </div>

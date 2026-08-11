@@ -37,7 +37,18 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_whatsapp_from: str = "whatsapp:+14155238886"
+
+    # Email OTP via Gmail SMTP (active delivery channel)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    otp_email_from: str = ""
+    otp_email_from_name: str = "SecureVault"
     otp_expire_minutes: int = 5
+
+    # Legacy SendGrid (optional; unused when SMTP is set)
+    sendgrid_api_key: str = ""
 
     puf_bridge_mode: str = "virtual"
     virtual_puf_host: str = "127.0.0.1"
@@ -68,10 +79,13 @@ def validate_security_settings(settings: Settings) -> None:
     if settings.is_production:
         if settings.secret_key == "dev-secret-change-in-production" or len(settings.secret_key) < 32:
             raise RuntimeError("SECRET_KEY must be set to a strong value in production.")
-        if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        if not (
+            (settings.smtp_username and settings.smtp_password)
+            or (settings.sendgrid_api_key and settings.otp_email_from)
+        ):
             import logging
             logging.getLogger("app.config").warning(
-                "Twilio credentials not configured in production. WhatsApp OTPs will be printed to console log instead."
+                "Email OTP not configured in production. OTPs will be printed to console log instead."
             )
         if settings.admin_password == "change-admin-password":
             raise RuntimeError("ADMIN_PASSWORD must be changed in production.")

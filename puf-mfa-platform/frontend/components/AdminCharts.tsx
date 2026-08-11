@@ -21,7 +21,11 @@ type Analytics = {
   total_24h: number;
 };
 
-const COLORS = ["#0c2d57", "#c9a227", "#059669", "#dc2626", "#7c3aed"];
+const CHART_PRIMARY = "#0D7377";
+const CHART_SECONDARY = "#5B6B76";
+const CHART_SUCCESS = "#1A7A4C";
+const CHART_ERROR = "#B91C1C";
+const CHART_GRID = "#E3E9EC";
 
 export function AdminCharts({ data }: { data: Analytics | null }) {
   if (!data) return null;
@@ -32,16 +36,17 @@ export function AdminCharts({ data }: { data: Analytics | null }) {
     { name: "Success", value: data.success_count },
     { name: "Failed", value: data.failed_count },
   ];
+  const outcomeColors = [CHART_SUCCESS, CHART_ERROR];
 
   return (
     <div className="mt-6 grid gap-6 lg:grid-cols-3">
-      <div className="bank-card rounded-2xl p-5">
-        <h3 className="mb-4 text-sm font-semibold">Auth Outcomes (24h)</h3>
+      <div className="bank-card p-5">
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Auth Outcomes (24h)</h3>
         <ResponsiveContainer width="100%" height={200}>
           <PieChart>
             <Pie data={outcomeData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label>
               {outcomeData.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                <Cell key={i} fill={outcomeColors[i]} />
               ))}
             </Pie>
             <Tooltip />
@@ -49,28 +54,28 @@ export function AdminCharts({ data }: { data: Analytics | null }) {
         </ResponsiveContainer>
       </div>
 
-      <div className="bank-card rounded-2xl p-5">
-        <h3 className="mb-4 text-sm font-semibold">Factor Usage (24h)</h3>
+      <div className="bank-card p-5">
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Factor Usage (24h)</h3>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={factorData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
             <XAxis dataKey="name" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
             <Tooltip />
-            <Bar dataKey="value" fill="#0c2d57" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="value" fill={CHART_PRIMARY} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="bank-card rounded-2xl p-5">
-        <h3 className="mb-4 text-sm font-semibold">Events by Hour</h3>
+      <div className="bank-card p-5">
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Events by Hour</h3>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={hourlyData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
             <XAxis dataKey="hour" tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 10 }} />
             <Tooltip />
-            <Bar dataKey="count" fill="#c9a227" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="count" fill={CHART_SECONDARY} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

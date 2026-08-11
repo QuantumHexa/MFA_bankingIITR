@@ -1,28 +1,24 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
-const display = Space_Grotesk({
+const ibmPlexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  variable: "--font-display",
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
 });
 
 export const metadata: Metadata = {
-  title: "SecureVault Bank | Net Banking",
-  description: "Secure online banking — savings, loans, transfers and more",
+  title: "SecureVault | Net Banking",
+  description: "SecureVault Net Banking — secure access to your accounts with multi-factor authentication.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${display.variable} ${mono.variable} font-display antialiased`}>
+      <body className={`${ibmPlexSans.variable} font-sans antialiased`}>
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>

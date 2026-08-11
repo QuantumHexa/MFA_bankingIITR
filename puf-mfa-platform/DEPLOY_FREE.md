@@ -51,7 +51,8 @@ Edit `.env.prod` and set:
 - `SECRET_KEY` to a strong random value.
 - `POSTGRES_PASSWORD` to a strong password.
 - `CORS_ORIGINS` to your real frontend domain.
-- Twilio credentials if you want real WhatsApp OTP.
+- Gmail SMTP credentials if you want real email OTP (`SMTP_USERNAME`, `SMTP_PASSWORD`, `OTP_EMAIL_FROM`).
+- Twilio credentials only if you re-enable WhatsApp OTP.
 
 ## 5) Open firewall ports
 

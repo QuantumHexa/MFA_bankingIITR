@@ -20,7 +20,7 @@ from app.services.auth_service import (
     verify_password,
 )
 from app.services.event_bus import auth_events
-from app.services.otp_service import generate_otp, hash_otp, send_whatsapp_otp, verify_otp
+from app.services.otp_service import generate_otp, hash_otp, mask_email, send_email_otp, verify_otp
 from app.services.puf_service import (
     derive_secret_identifier,
     derive_session_key,
@@ -427,28 +427,28 @@ def login_start(payload: LoginStartRequest, request: Request, response: Response
     db.commit()
 
     try:
-        send_whatsapp_otp(user.phone, otp)
+        send_email_otp(user.email, otp)
     except RuntimeError as exc:
-        _log_auth(db, user.id, "otp_sent", "whatsapp", "failed", request, {"error": str(exc)})
+        _log_auth(db, user.id, "otp_sent", "email", "failed", request, {"error": str(exc)})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    _log_auth(db, user.id, "otp_sent", "whatsapp", "success", request)
+    _log_auth(db, user.id, "otp_sent", "email", "success", request)
     _emit(
         "auth_step",
-        step="whatsapp_otp",
+        step="email_otp",
         status="pending",
         session_id=session.id,
         user_id=user.id,
-        delivery="whatsapp",
+        delivery="email",
     )
 
     return {
         "session_id": session.id,
-        "message": f"OTP sent to WhatsApp ending in {user.phone[-4:]}",
+        "message": f"OTP sent to {mask_email(user.email)}",
         "requires_puf": user.puf_enabled,
         "puf_mode": user.puf_mode,
         "next_step": "verify_otp",
-        "delivery": "whatsapp",
+        "delivery": "email",
     }
 
 
@@ -463,8 +463,8 @@ def login_verify_otp(payload: OtpVerifyRequest, request: Request, response: Resp
         raise HTTPException(status_code=400, detail="Invalid session")
 
     if session.otp_expires_at and datetime.utcnow() > session.otp_expires_at:
-        _log_auth(db, user.id, "login", "whatsapp_otp", "expired", request)
-        _emit("auth_step", step="whatsapp_otp", status="expired", session_id=session.id)
+        _log_auth(db, user.id, "login", "email_otp", "expired", request)
+        _emit("auth_step", step="email_otp", status="expired", session_id=session.id)
         raise HTTPException(status_code=400, detail="OTP expired")
 
     if session.otp_locked_until and datetime.utcnow() < session.otp_locked_until:
@@ -476,8 +476,8 @@ def login_verify_otp(payload: OtpVerifyRequest, request: Request, response: Resp
         if session.otp_attempts >= settings.otp_max_attempts:
             session.otp_locked_until = datetime.utcnow() + timedelta(minutes=settings.otp_lock_minutes)
         db.commit()
-        _log_auth(db, user.id, "login", "whatsapp_otp", "failed", request)
-        _emit("auth_step", step="whatsapp_otp", status="failed", session_id=session.id)
+        _log_auth(db, user.id, "login", "email_otp", "failed", request)
+        _emit("auth_step", step="email_otp", status="failed", session_id=session.id)
         if session.otp_locked_until and datetime.utcnow() < session.otp_locked_until:
             raise HTTPException(status_code=429, detail="Too many OTP failures. Session temporarily locked.")
         raise HTTPException(status_code=401, detail="Invalid OTP")
@@ -486,8 +486,8 @@ def login_verify_otp(payload: OtpVerifyRequest, request: Request, response: Resp
     session.otp_hash = None
     session.otp_attempts = 0
     session.otp_locked_until = None
-    _log_auth(db, user.id, "login", "whatsapp_otp", "success", request)
-    _emit("auth_step", step="whatsapp_otp", status="success", session_id=session.id)
+    _log_auth(db, user.id, "login", "email_otp", "success", request)
+    _emit("auth_step", step="email_otp", status="success", session_id=session.id)
 
     if not user.puf_enabled:
         return _complete_login(user, session, db, response)
@@ -540,13 +540,13 @@ def login_resend_otp(payload: SessionRequest, request: Request, db: DbSession) -
     db.commit()
 
     try:
-        send_whatsapp_otp(user.phone, otp)
+        send_email_otp(user.email, otp)
     except RuntimeError as exc:
-        _log_auth(db, user.id, "otp_resend", "whatsapp", "failed", request, {"error": str(exc)})
+        _log_auth(db, user.id, "otp_resend", "email", "failed", request, {"error": str(exc)})
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    _log_auth(db, user.id, "otp_resend", "whatsapp", "success", request, {"session_id": session.id})
-    return {"message": f"OTP resent to WhatsApp ending in {user.phone[-4:]}", "session_id": session.id}
+    _log_auth(db, user.id, "otp_resend", "email", "success", request, {"session_id": session.id})
+    return {"message": f"OTP resent to {mask_email(user.email)}", "session_id": session.id}
 
 
 @router.post("/login/verify-puf")

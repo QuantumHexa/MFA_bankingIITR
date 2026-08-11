@@ -1,77 +1,77 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Cpu, KeyRound, MessageCircle, ShieldCheck } from "lucide-react";
+import { ArrowRight, Cpu, KeyRound, MessageCircle } from "lucide-react";
 import { Footer } from "@/components/Footer";
-import { LiveAuthStepper } from "@/components/LiveAuthStepper";
 import { Navbar } from "@/components/Navbar";
 
 const factors = [
   {
     icon: KeyRound,
     title: "Password",
-    desc: "Something you know — first gate of authentication.",
+    desc: "Encrypted credential verification as your first security layer.",
   },
   {
     icon: MessageCircle,
-    title: "WhatsApp OTP",
-    desc: "Something you receive — one-time code on your phone.",
+    title: "OTP",
+    desc: "One-time passcode sent to your registered email address.",
   },
   {
     icon: Cpu,
-    title: "PUF Device",
-    desc: "Something you have — unclonable hardware identity.",
+    title: "Device",
+    desc: "Optional hardware verification for high-security accounts.",
   },
 ];
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen">
       <Navbar />
 
-      <main className="mx-auto max-w-5xl px-6 py-16">
+      <main>
         {/* Hero */}
-        <section className="text-center">
-          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 text-xs font-medium text-[var(--primary)]">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Multi-Factor Authentication Demo
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-[var(--primary)] md:text-4xl">
-            Secure Banking Login
+        <section className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-28">
+          <p className="text-sm font-medium tracking-wide text-[var(--primary)]">SecureVault</p>
+          <h1 className="mt-3 max-w-xl text-4xl font-semibold tracking-tight text-[var(--text)] sm:text-5xl">
+            Net Banking
           </h1>
-          <p className="mx-auto mt-4 max-w-lg text-[var(--muted)]">
-            This demo shows how SecureVault protects every login with three independent
-            security factors — including hardware-based device authentication.
+          <p className="mt-4 max-w-md text-base leading-relaxed text-[var(--text-secondary)]">
+            Access your accounts securely with multi-factor authentication.
           </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/login" className="btn-primary">
-              Try Secure Login <ArrowRight className="h-4 w-4" />
+              Sign In <ArrowRight className="h-4 w-4" />
             </Link>
             <Link href="/signup" className="btn-outline">
-              Create Account
+              Open an Account
             </Link>
           </div>
         </section>
 
-        {/* 3 Factors */}
-        <section className="mt-16 grid gap-4 sm:grid-cols-3">
-          {factors.map((f) => (
-            <div key={f.title} className="bank-card rounded-xl p-5 text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--primary)]/10 text-[var(--primary)]">
-                <f.icon className="h-5 w-5" />
-              </div>
-              <h3 className="mt-3 font-semibold">{f.title}</h3>
-              <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted)]">{f.desc}</p>
+        {/* Security layers */}
+        <section className="border-t border-[var(--border)] bg-[var(--surface)]">
+          <div className="mx-auto max-w-6xl px-6 py-16">
+            <h2 className="text-sm font-semibold text-[var(--text)]">How we protect your login</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Every session is verified through independent security checks.
+            </p>
+            <div className="mt-10 grid gap-10 sm:grid-cols-3">
+              {factors.map((f, i) => (
+                <div key={f.title} className="flex gap-4">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--border)] bg-[var(--bg)] text-xs font-semibold tabular-nums text-[var(--primary)]">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <f.icon className="h-4 w-4 text-[var(--primary)]" />
+                      <h3 className="text-sm font-semibold text-[var(--text)]">{f.title}</h3>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
-
-        {/* Live monitor */}
-        <section className="mt-16">
-          <p className="mb-4 text-center text-sm text-[var(--muted)]">
-            Watch authentication events in real-time as users log in
-          </p>
-          <LiveAuthStepper />
+          </div>
         </section>
       </main>
 

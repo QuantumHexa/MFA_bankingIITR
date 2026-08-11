@@ -152,7 +152,7 @@ export default function AdminPage() {
   if (loading || !user || user.role !== "admin") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]" />
       </div>
     );
   }
@@ -167,11 +167,12 @@ export default function AdminPage() {
     : [];
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="min-h-screen">
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <Link href="/dashboard" className="btn-ghost text-sm">
-            <ArrowLeft className="h-4 w-4" /> Dashboard
+            <ArrowLeft className="h-4 w-4" /> Accounts
           </Link>
           <div className="flex gap-2">
             <button onClick={exportCsv} className="btn-outline flex items-center gap-2 py-2 text-sm">
@@ -181,54 +182,73 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
-            <Shield className="h-5 w-5" />
+        <div className="mb-8 flex items-center gap-3 border-b border-[var(--border)] pb-6">
+          <div className="flex h-9 w-9 items-center justify-center bg-[var(--primary)] text-white">
+            <Shield className="h-4 w-4" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-[var(--primary)]">Admin Panel</h1>
-            <p className="text-sm text-[var(--muted)]">Security monitoring & attack demonstrations</p>
+            <h1 className="text-xl font-semibold text-[var(--text)]">Admin Console</h1>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Monitoring, users, and security tests
+            </p>
           </div>
         </div>
 
         {loadError && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
+          <div className="mb-6 rounded-md border border-[var(--error)]/20 bg-[var(--error-subtle)] px-4 py-3 text-sm text-[var(--error)]">
             {loadError}
           </div>
         )}
 
+        {/* Stat cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {statCards.map((s) => (
-            <div key={s.label} className="bank-card rounded-xl p-5">
-              <p className="text-xs text-[var(--muted)]">{s.label}</p>
-              <p className="mt-1 text-2xl font-bold text-[var(--primary)]">{s.value}</p>
+            <div key={s.label} className="bank-card p-5">
+              <p className="text-xs font-medium text-[var(--text-secondary)]">{s.label}</p>
+              <p className="mt-1.5 text-2xl font-bold tabular-nums text-[var(--text)]">{s.value}</p>
             </div>
           ))}
         </div>
 
+        {/* PUF status */}
         {pufStatus && (
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="bank-card rounded-xl p-4">
-              <p className="text-xs text-[var(--muted)]">Virtual PUF</p>
-              <p className={`mt-1 font-semibold ${pufStatus.virtual.online ? "text-[var(--success)]" : "text-red-500"}`}>
-                {pufStatus.virtual.online ? "Online" : "Offline"}
-              </p>
-              <p className="text-xs text-[var(--muted)]">{pufStatus.virtual.host}:{pufStatus.virtual.port}</p>
+            <div className="bank-card p-4">
+              <p className="text-xs font-medium text-[var(--text-secondary)]">Virtual PUF</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className={`status-dot ${pufStatus.virtual.online ? "bg-[var(--success)]" : "bg-[var(--error)]"}`} />
+                <span className={`text-sm font-medium ${pufStatus.virtual.online ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
+                  {pufStatus.virtual.online ? "Online" : "Offline"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[var(--text-tertiary)]">{pufStatus.virtual.host}:{pufStatus.virtual.port}</p>
             </div>
-            <div className="bank-card rounded-xl p-4">
-              <p className="text-xs text-[var(--muted)]">Hardware PUF (ESP32-C6)</p>
-              <p className={`mt-1 font-semibold ${pufStatus.hardware.online ? "text-[var(--success)]" : "text-red-500"}`}>
-                {pufStatus.hardware.online ? "Connected" : "Not connected"}
-              </p>
-              <p className="text-xs text-[var(--muted)]">{pufStatus.hardware.port} @ {pufStatus.hardware.baud}</p>
+            <div className="bank-card p-4">
+              <p className="text-xs font-medium text-[var(--text-secondary)]">Hardware PUF (ESP32-C6)</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className={`status-dot ${pufStatus.hardware.online ? "bg-[var(--success)]" : "bg-[var(--error)]"}`} />
+                <span className={`text-sm font-medium ${pufStatus.hardware.online ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
+                  {pufStatus.hardware.online ? "Connected" : "Not connected"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[var(--text-tertiary)]">{pufStatus.hardware.port} @ {pufStatus.hardware.baud}</p>
             </div>
-            <div className="bank-card rounded-xl p-4">
-              <p className="text-xs text-[var(--muted)]">WhatsApp OTP</p>
-              <p className={`mt-1 font-semibold ${pufStatus.twilio_configured ? "text-[var(--success)]" : "text-red-500"}`}>
-                {pufStatus.twilio_configured ? "Twilio active" : "Not configured"}
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                {pufStatus.twilio_configured ? "OTP via WhatsApp" : "Add Twilio credentials to backend/.env"}
+            <div className="bank-card p-4">
+              <p className="text-xs font-medium text-[var(--text-secondary)]">Email OTP</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className={`status-dot ${pufStatus.email_otp_configured ? "bg-[var(--success)]" : "bg-[var(--error)]"}`} />
+                <span className={`text-sm font-medium ${pufStatus.email_otp_configured ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
+                  {pufStatus.email_otp_configured
+                    ? pufStatus.otp_email_provider === "smtp"
+                      ? "Gmail SMTP active"
+                      : "Email OTP active"
+                    : "Not configured"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                {pufStatus.email_otp_configured
+                  ? "OTP via email"
+                  : "Add SMTP_USERNAME + SMTP_PASSWORD (Gmail App Password) to backend/.env"}
               </p>
             </div>
           </div>
@@ -237,16 +257,16 @@ export default function AdminPage() {
         <AdminCharts data={analytics} />
 
         {/* Attack demos */}
-        <div className="bank-card mt-6 rounded-2xl border-red-200 p-6 dark:border-red-900">
-          <div className="mb-4 flex items-center gap-2 text-red-600">
-            <AlertTriangle className="h-5 w-5" />
-            <h2 className="font-semibold">Attack Simulations</h2>
+        <div className="bank-card mt-6 border-[var(--error)]/20 p-6">
+          <div className="mb-4 flex items-center gap-2 text-[var(--error)]">
+            <AlertTriangle className="h-4 w-4" />
+            <h2 className="text-sm font-semibold">Security Penetration Tests</h2>
           </div>
-          <p className="mb-4 text-sm text-[var(--muted)]">
-            Demonstrate why MFA blocks common attacks. Results are logged to auth history.
+          <p className="mb-4 text-sm text-[var(--text-secondary)]">
+            Simulate common attack vectors to verify that multi-factor authentication is blocking unauthorized access. All results are logged.
           </p>
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium">Session ID for replay test (optional)</label>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Session ID for replay test</label>
             <input
               className="input-field font-mono text-xs"
               placeholder="Paste session_id from a completed login"
@@ -258,83 +278,84 @@ export default function AdminPage() {
             <button
               onClick={() => runAttack("password-only")}
               disabled={!!attackLoading}
-              className="btn-outline border-red-300 text-sm text-red-600"
+              className="btn-outline border-[var(--error)]/30 text-sm text-[var(--error)]"
             >
-              {attackLoading === "password-only" ? "Running..." : "Password-only bypass"}
+              {attackLoading === "password-only" ? "Running…" : "Password-Only Bypass"}
             </button>
             <button
               onClick={() => runAttack("replay")}
               disabled={!!attackLoading || !replaySessionId}
-              className="btn-outline border-red-300 text-sm text-red-600"
+              className="btn-outline border-[var(--error)]/30 text-sm text-[var(--error)]"
             >
-              {attackLoading === "replay" ? "Running..." : "Replay attack"}
+              {attackLoading === "replay" ? "Running…" : "Replay Attack"}
             </button>
             <button
               onClick={() => runAttack("clone")}
               disabled={!!attackLoading}
-              className="btn-outline border-red-300 text-sm text-red-600"
+              className="btn-outline border-[var(--error)]/30 text-sm text-[var(--error)]"
             >
-              {attackLoading === "clone" ? "Running..." : "Clone device"}
+              {attackLoading === "clone" ? "Running…" : "Clone Device"}
             </button>
           </div>
           {attackResult && (
-            <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-4">
-              <p className="font-semibold">{attackResult.attack}</p>
-              <p className={`mt-1 text-sm font-bold ${attackResult.result === "BLOCKED" ? "text-[var(--success)]" : "text-red-500"}`}>
+            <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--bg-subtle)] p-4">
+              <p className="text-sm font-medium text-[var(--text)]">{attackResult.attack}</p>
+              <p className={`mt-1 text-sm font-semibold ${attackResult.result === "BLOCKED" ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
                 {attackResult.result}
               </p>
-              <p className="mt-2 text-sm text-[var(--muted)]">{attackResult.explanation}</p>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">{attackResult.explanation}</p>
             </div>
           )}
         </div>
 
+        {/* Users + Logs */}
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <div className="bank-card rounded-2xl p-6">
+          <div className="bank-card p-6">
             <div className="mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-[var(--primary)]" />
-              <h2 className="font-semibold">Users</h2>
+              <Users className="h-4 w-4 text-[var(--primary)]" />
+              <h2 className="text-sm font-semibold text-[var(--text)]">Customer Accounts</h2>
             </div>
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-64 divide-y divide-[var(--border)] overflow-y-auto">
               {users.map((u) => (
-                <div key={u.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
-                  <div>
-                    <p className="font-medium">{u.full_name}</p>
-                    <p className="text-xs text-[var(--muted)]">{u.email} • {u.phone}</p>
-                    <p className="text-xs text-[var(--muted)]">
-                      @{u.username || "n/a"} • Acct {u.account_number || "n/a"} • ₹{u.balance ?? 0}
+                <div key={u.id} className="flex items-center justify-between py-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-[var(--text)]">{u.full_name}</p>
+                    <p className="truncate text-xs text-[var(--text-tertiary)]">{u.email} · {u.phone}</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">
+                      @{u.username || "n/a"} · Acct {u.account_number || "n/a"} · <span className="tabular-nums">₹{u.balance ?? 0}</span>
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-[var(--muted)]">
+                  <div className="flex shrink-0 items-center gap-2 pl-3">
+                    <span className="text-xs text-[var(--text-tertiary)]">
                       {u.puf_enabled ? `${u.puf_mode} PUF` : "No PUF"}
                     </span>
                     <button
                       onClick={() => startEdit(u)}
-                      className="btn-outline flex items-center gap-1 py-1 text-xs"
+                      className="btn-outline flex items-center gap-1 px-2 py-1 text-xs"
                     >
-                      <Pencil className="h-3.5 w-3.5" /> Edit
+                      <Pencil className="h-3 w-3" /> Edit
                     </button>
                   </div>
                 </div>
               ))}
             </div>
             {editingUser && (
-              <div className="mt-4 rounded-xl border border-[var(--border)] p-4">
-                <p className="mb-2 text-sm font-semibold">Edit User: {editingUser.full_name}</p>
+              <div className="mt-4 rounded-md border border-[var(--border)] p-4">
+                <p className="mb-3 text-sm font-medium text-[var(--text)]">Edit User: {editingUser.full_name}</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input className="input-field text-sm" placeholder="Username" value={editForm.username} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} />
                   <input className="input-field text-sm" placeholder="Full name" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
                   <input className="input-field text-sm" placeholder="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
                   <input className="input-field text-sm" placeholder="Phone (10 digits)" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
                   <input className="input-field text-sm" placeholder="Account number" value={editForm.account_number} onChange={(e) => setEditForm({ ...editForm, account_number: e.target.value })} />
-                  <input className="input-field text-sm" placeholder="Balance" type="number" min="0" value={editForm.balance} onChange={(e) => setEditForm({ ...editForm, balance: e.target.value })} />
+                  <input className="input-field text-sm tabular-nums" placeholder="Balance" type="number" min="0" value={editForm.balance} onChange={(e) => setEditForm({ ...editForm, balance: e.target.value })} />
                   <input className="input-field text-sm sm:col-span-2" placeholder="New password (optional, min 8 chars)" type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
                 </div>
-                <label className="mt-3 flex items-center gap-2 text-xs">
+                <label className="mt-3 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                   <input type="checkbox" checked={editForm.is_active} onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })} />
                   User active
                 </label>
-                {editError && <p className="mt-2 text-xs text-red-500">{editError}</p>}
+                {editError && <p className="mt-2 text-xs text-[var(--error)]">{editError}</p>}
                 {editSuccess && <p className="mt-2 text-xs text-[var(--success)]">{editSuccess}</p>}
                 <div className="mt-3 flex gap-2">
                   <button onClick={saveUserEdit} disabled={editSaving} className="btn-primary py-2 text-xs">
@@ -348,16 +369,16 @@ export default function AdminPage() {
             )}
           </div>
 
-          <div className="bank-card rounded-2xl p-6">
-            <h2 className="mb-4 font-semibold">Auth Logs</h2>
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+          <div className="bank-card p-6">
+            <h2 className="mb-4 text-sm font-semibold text-[var(--text)]">Authentication Logs</h2>
+            <div className="max-h-64 divide-y divide-[var(--border)] overflow-y-auto">
               {logs.map((log) => (
-                <div key={log.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                <div key={log.id} className="flex items-center justify-between py-3 text-sm">
                   <div>
-                    <p className="font-medium capitalize">{log.event.replace("_", " ")}</p>
-                    <p className="text-xs text-[var(--muted)]">{log.factor}</p>
+                    <p className="font-medium capitalize text-[var(--text)]">{log.event.replace("_", " ")}</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">{log.factor}</p>
                   </div>
-                  <span className={`text-xs font-medium ${log.status === "success" || log.status === "blocked" ? "text-[var(--success)]" : "text-red-500"}`}>
+                  <span className={`text-xs font-medium ${log.status === "success" || log.status === "blocked" ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
                     {log.status}
                   </span>
                 </div>

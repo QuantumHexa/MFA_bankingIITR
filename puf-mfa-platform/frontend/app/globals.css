@@ -2,31 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design Tokens — light teal banking ────────────────────────── */
+
 :root {
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --primary: #0c2d57;
-  --primary-light: #1a4480;
-  --accent: #c9a227;
-  --accent-soft: #f5ecd3;
-  --border: #e2e8f0;
-  --success: #059669;
+  --bg:              #F5F7F8;
+  --bg-subtle:       #EEF2F3;
+  --surface:         #FFFFFF;
+  --surface-alt:     #FAFCFC;
+  --text:            #14202A;
+  --text-secondary:  #5B6B76;
+  --text-tertiary:   #8A9AA5;
+  --primary:         #0D7377;
+  --primary-hover:   #0A5F63;
+  --primary-subtle:  #E6F4F4;
+  --accent:          #0D7377;
+  --border:          #E3E9EC;
+  --border-strong:   #CDD6DB;
+  --success:         #1A7A4C;
+  --success-subtle:  #EAF6F0;
+  --error:           #B91C1C;
+  --error-subtle:    #FEF2F2;
+  --warning:         #A16207;
+  --warning-subtle:  #FFFBEB;
+
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  10px;
+
+  --shadow-xs: 0 1px 2px rgba(20, 32, 42, 0.04);
+  --shadow-sm: 0 1px 2px rgba(20, 32, 42, 0.05);
+  --shadow-md: 0 2px 8px rgba(20, 32, 42, 0.06);
 }
 
 .dark {
-  --bg: #071525;
-  --surface: #0f2137;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-  --primary: #1e4976;
-  --primary-light: #2d6cb5;
-  --accent: #d4af37;
-  --accent-soft: #2a2418;
-  --border: #1e3a5f;
-  --success: #34d399;
+  --bg:              #0C1416;
+  --bg-subtle:       #131C1F;
+  --surface:         #162022;
+  --surface-alt:     #1C282B;
+  --text:            #E8F0F1;
+  --text-secondary:  #94A8AE;
+  --text-tertiary:   #6B8086;
+  --primary:         #2DB8BC;
+  --primary-hover:   #4EC8CB;
+  --primary-subtle:  #123033;
+  --accent:          #2DB8BC;
+  --border:          #243438;
+  --border-strong:   #334A50;
+  --success:         #4ADE80;
+  --success-subtle:  #0A2E1C;
+  --error:           #F87171;
+  --error-subtle:    #3B1515;
+  --warning:         #FBBF24;
+  --warning-subtle:  #3B2F0A;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
+
+/* ── Base ──────────────────────────────────────────────────────── */
 
 @layer base {
   * {
@@ -35,80 +69,117 @@
 
   html {
     scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     min-height: 100vh;
-    background: var(--bg);
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(180deg, rgba(13, 115, 119, 0.04) 0%, transparent 260px),
+      radial-gradient(ellipse 70% 45% at 100% 0%, rgba(13, 115, 119, 0.05), transparent 55%);
     color: var(--text);
-    transition: background 0.3s ease, color 0.3s ease;
+    letter-spacing: -0.01em;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .dark body {
+    background-image:
+      linear-gradient(180deg, rgba(45, 184, 188, 0.05) 0%, transparent 260px),
+      radial-gradient(ellipse 70% 45% at 100% 0%, rgba(45, 184, 188, 0.06), transparent 55%);
   }
 }
+
+/* ── Utility ───────────────────────────────────────────────────── */
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* ── Component Classes ─────────────────────────────────────────── */
 
 @layer components {
   .bank-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    box-shadow: 0 4px 24px rgba(12, 45, 87, 0.06);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xs);
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white transition-all;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-white;
     background: var(--primary);
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease;
   }
-
   .btn-primary:hover {
-    background: var(--primary-light);
-    transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(12, 45, 87, 0.2);
+    background: var(--primary-hover);
+  }
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .btn-outline {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border px-6 py-3 text-sm font-semibold transition-all;
-    border-color: var(--border);
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
     color: var(--text);
     background: var(--surface);
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
-
   .btn-outline:hover {
     border-color: var(--primary);
     color: var(--primary);
+    background: var(--primary-subtle);
+  }
+  .btn-outline:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all;
-    color: var(--muted);
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium;
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    transition: color 0.15s ease, background 0.15s ease;
   }
-
   .btn-ghost:hover {
-    color: var(--primary);
-  }
-
-  .btn-gold {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-all;
-    background: var(--accent);
-    color: #1a1508;
-  }
-
-  .btn-gold:hover {
-    filter: brightness(1.05);
-    transform: translateY(-1px);
+    color: var(--text);
+    background: var(--bg-subtle);
   }
 
   .input-field {
-    @apply w-full rounded-lg px-4 py-3 text-sm outline-none transition-all;
+    @apply w-full px-3.5 py-2.5 text-sm outline-none;
     background: var(--surface);
     border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     color: var(--text);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-
+  .input-field::placeholder {
+    color: var(--text-tertiary);
+  }
   .input-field:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(12, 45, 87, 0.1);
+    box-shadow: 0 0 0 3px var(--primary-subtle);
   }
 
-  .section-label {
-    @apply text-xs font-semibold uppercase tracking-widest;
-    color: var(--accent);
+  .status-dot {
+    @apply inline-block h-1.5 w-1.5 shrink-0;
+    border-radius: 50%;
+  }
+
+  .status-label {
+    @apply inline-flex items-center gap-1.5 text-xs font-medium;
+    color: var(--text-secondary);
   }
 }
