@@ -178,48 +178,60 @@ def seed_admin() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    if settings.database_url.startswith("sqlite"):
-        _ensure_sqlite_columns()
+    _ensure_schema_columns()
     seed_admin()
 
 
-def _ensure_sqlite_columns() -> None:
+def _ensure_schema_columns() -> None:
+    """Add missing columns for both SQLite and Postgres (create_all does not alter)."""
+    is_sqlite = settings.database_url.startswith("sqlite")
     db = SessionLocal()
     try:
-        user_cols = {row[1] for row in db.execute(text("PRAGMA table_info(users)")).fetchall()}
-        if "username" not in user_cols:
-            db.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(100)"))
-        if "dob" not in user_cols:
-            db.execute(text("ALTER TABLE users ADD COLUMN dob VARCHAR(20)"))
-        if "account_number" not in user_cols:
-            db.execute(text("ALTER TABLE users ADD COLUMN account_number VARCHAR(20)"))
-        if "initial_deposit" not in user_cols:
-            db.execute(text("ALTER TABLE users ADD COLUMN initial_deposit FLOAT DEFAULT 0"))
+        def cols(table: str) -> set[str]:
+            if is_sqlite:
+                return {row[1] for row in db.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+            rows = db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = :t"
+                ),
+                {"t": table},
+            ).fetchall()
+            return {row[0] for row in rows}
 
-        puf_cols = {row[1] for row in db.execute(text("PRAGMA table_info(puf_devices)")).fetchall()}
-        if "secret_identifier" not in puf_cols:
-            db.execute(text("ALTER TABLE puf_devices ADD COLUMN secret_identifier VARCHAR(32)"))
-        if "device_pubkey_hex" not in puf_cols:
-            db.execute(text("ALTER TABLE puf_devices ADD COLUMN device_pubkey_hex VARCHAR(64)"))
+        def add(table: str, column: str, ddl: str) -> None:
+            if column not in cols(table):
+                db.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
 
-        auth_session_cols = {row[1] for row in db.execute(text("PRAGMA table_info(auth_sessions)")).fetchall()}
-        if "otp_attempts" not in auth_session_cols:
-            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_attempts INTEGER DEFAULT 0"))
-        if "otp_sent_count" not in auth_session_cols:
-            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_sent_count INTEGER DEFAULT 1"))
-        if "otp_locked_until" not in auth_session_cols:
-            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_locked_until DATETIME"))
-        if "otp_resend_available_at" not in auth_session_cols:
-            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN otp_resend_available_at DATETIME"))
-        if "hardware_eph_scalar_hex" not in auth_session_cols:
-            db.execute(text("ALTER TABLE auth_sessions ADD COLUMN hardware_eph_scalar_hex VARCHAR(64)"))
+        add("users", "username", "username VARCHAR(100)")
+        add("users", "dob", "dob VARCHAR(20)")
+        add("users", "account_number", "account_number VARCHAR(20)")
+        add("users", "initial_deposit", "initial_deposit FLOAT DEFAULT 0")
+        add("users", "site_auth_phrase", "site_auth_phrase VARCHAR(80)")
 
-        user_cols_refresh = {row[1] for row in db.execute(text("PRAGMA table_info(users)")).fetchall()}
-        if "site_auth_phrase" not in user_cols_refresh:
-            db.execute(text("ALTER TABLE users ADD COLUMN site_auth_phrase VARCHAR(80)"))
-        else:
+        add("puf_devices", "secret_identifier", "secret_identifier VARCHAR(32)")
+        add("puf_devices", "device_pubkey_hex", "device_pubkey_hex VARCHAR(64)")
+
+        add("auth_sessions", "otp_attempts", "otp_attempts INTEGER DEFAULT 0")
+        add("auth_sessions", "otp_sent_count", "otp_sent_count INTEGER DEFAULT 1")
+        add(
+            "auth_sessions",
+            "otp_locked_until",
+            "otp_locked_until TIMESTAMP" if not is_sqlite else "otp_locked_until DATETIME",
+        )
+        add(
+            "auth_sessions",
+            "otp_resend_available_at",
+            "otp_resend_available_at TIMESTAMP" if not is_sqlite else "otp_resend_available_at DATETIME",
+        )
+        add("auth_sessions", "hardware_eph_scalar_hex", "hardware_eph_scalar_hex VARCHAR(64)")
+
+        if "site_auth_phrase" in cols("users"):
             db.execute(
-                text("UPDATE users SET site_auth_phrase = 'fine for me' WHERE site_auth_phrase IS NULL AND role != 'admin'")
+                text(
+                    "UPDATE users SET site_auth_phrase = 'fine for me' "
+                    "WHERE site_auth_phrase IS NULL AND role != 'admin'"
+                )
             )
 
         db.commit()
