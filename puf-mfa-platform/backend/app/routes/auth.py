@@ -395,71 +395,81 @@ def login_start(payload: LoginStartRequest, request: Request, response: Response
         if not site_challenge or not site_challenge.confirmed or datetime.utcnow() > site_challenge.expires_at:
             raise HTTPException(status_code=403, detail="Confirm your Authentication Text before entering password")
 
-    session = AuthSession(
-        user_id=user.id,
-        nonce=generate_nonce(32),
-        challenge=generate_nonce(32),
-        step="otp_pending",
-        otp_expires_at=datetime.utcnow() + timedelta(minutes=5),
-        otp_attempts=0,
-        otp_sent_count=1,
-        otp_resend_available_at=datetime.utcnow() + timedelta(seconds=settings.otp_resend_cooldown_seconds),
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-
-    _log_auth(db, user.id, "login", "password", "success", request)
-    _emit(
-        "auth_step",
-        step="password",
-        status="success",
-        session_id=session.id,
-        user_id=user.id,
-        email=user.email,
-    )
-
-    # Admin convenience mode: password-only login (skip OTP/PUF).
-    if user.role == "admin":
-        session.step = "complete"
-        session.otp_hash = None
-        db.commit()
-        _emit("auth_step", step="admin_bypass", status="success", session_id=session.id, user_id=user.id)
-        result = _complete_login(user, session, db, response)
-        result["message"] = "Admin login successful. OTP skipped."
-        result["requires_puf"] = False
-        result["puf_mode"] = "off"
-        result["delivery"] = "none"
-        return result
-
-    otp = generate_otp(6)
-    session.otp_hash = hash_otp(otp)
-    db.commit()
-
     try:
-        send_email_otp(user.email, otp)
-    except RuntimeError as exc:
-        _log_auth(db, user.id, "otp_sent", "email", "failed", request, {"error": str(exc)})
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        session = AuthSession(
+            user_id=user.id,
+            nonce=generate_nonce(32),
+            challenge=generate_nonce(32),
+            step="otp_pending",
+            otp_expires_at=datetime.utcnow() + timedelta(minutes=5),
+            otp_attempts=0,
+            otp_sent_count=1,
+            otp_resend_available_at=datetime.utcnow() + timedelta(seconds=settings.otp_resend_cooldown_seconds),
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
 
-    _log_auth(db, user.id, "otp_sent", "email", "success", request)
-    _emit(
-        "auth_step",
-        step="email_otp",
-        status="pending",
-        session_id=session.id,
-        user_id=user.id,
-        delivery="email",
-    )
+        _log_auth(db, user.id, "login", "password", "success", request)
+        _emit(
+            "auth_step",
+            step="password",
+            status="success",
+            session_id=session.id,
+            user_id=user.id,
+            email=user.email,
+        )
 
-    return {
-        "session_id": session.id,
-        "message": f"OTP sent to {mask_email(user.email)}",
-        "requires_puf": user.puf_enabled,
-        "puf_mode": user.puf_mode,
-        "next_step": "verify_otp",
-        "delivery": "email",
-    }
+        # Admin convenience mode: password-only login (skip OTP/PUF).
+        if user.role == "admin":
+            session.step = "complete"
+            session.otp_hash = None
+            db.commit()
+            _emit("auth_step", step="admin_bypass", status="success", session_id=session.id, user_id=user.id)
+            result = _complete_login(user, session, db, response)
+            result["message"] = "Admin login successful. OTP skipped."
+            result["requires_puf"] = False
+            result["puf_mode"] = "off"
+            result["delivery"] = "none"
+            return result
+
+        otp = generate_otp(6)
+        session.otp_hash = hash_otp(otp)
+        db.commit()
+
+        try:
+            send_email_otp(user.email, otp)
+        except RuntimeError as exc:
+            _log_auth(db, user.id, "otp_sent", "email", "failed", request, {"error": str(exc)})
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        _log_auth(db, user.id, "otp_sent", "email", "success", request)
+        _emit(
+            "auth_step",
+            step="email_otp",
+            status="pending",
+            session_id=session.id,
+            user_id=user.id,
+            delivery="email",
+        )
+
+        return {
+            "session_id": session.id,
+            "message": f"OTP sent to {mask_email(user.email)}",
+            "requires_puf": user.puf_enabled,
+            "puf_mode": user.puf_mode,
+            "next_step": "verify_otp",
+            "delivery": "email",
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        import logging
+
+        logging.getLogger(__name__).exception("login/start failed for user=%s", payload.username)
+        raise HTTPException(status_code=500, detail=f"Login failed: {type(exc).__name__}: {exc}") from exc
 
 
 @router.post("/login/verify-otp")
