@@ -1,4 +1,7 @@
-"""Reset platform database — keeps only seeded admin account."""
+"""Reset platform database — keeps only seeded admin account.
+
+Supports SQLite (local) and Postgres (Render / production).
+"""
 
 from pathlib import Path
 
@@ -34,8 +37,11 @@ def _wipe_tables() -> None:
 
 
 def reset_database() -> None:
+    # Postgres / other: wipe rows in place, then re-seed admin
     if not settings.database_url.startswith("sqlite"):
-        raise SystemExit("reset_database.py only supports SQLite (delete file manually for Postgres).")
+        print(f"Wiping database ({settings.database_url.split('@')[-1] if '@' in settings.database_url else 'non-sqlite'})...")
+        _wipe_tables()
+        return
 
     db_path = settings.database_url.replace("sqlite:///", "")
     path = Path(db_path)
