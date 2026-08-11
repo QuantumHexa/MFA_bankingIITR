@@ -35,33 +35,43 @@ SESSION_TTL_MINUTES = 15
 
 
 def _set_auth_cookies(response: Response, tokens: dict, refresh_days: int | None = None) -> None:
-    secure = settings.cookie_secure or settings.is_production
-    same_site = settings.cookie_samesite
-    domain = settings.cookie_domain or None
-    response.set_cookie(
-        key=settings.access_cookie_name,
-        value=tokens["access_token"],
-        httponly=True,
-        secure=secure,
-        samesite=same_site,
-        max_age=settings.access_cookie_max_age_minutes * 60,
-        domain=domain,
-        path="/",
-    )
-    response.set_cookie(
-        key=settings.refresh_cookie_name,
-        value=tokens["refresh_token"],
-        httponly=True,
-        secure=secure,
-        samesite=same_site,
-        max_age=(refresh_days or settings.refresh_cookie_max_age_days) * 24 * 3600,
-        domain=domain,
-        path="/",
-    )
+    secure = bool(settings.cookie_secure or settings.is_production)
+    raw_same_site = (settings.cookie_samesite or "lax").strip().lower()
+    same_site = raw_same_site if raw_same_site in {"lax", "strict", "none"} else "lax"
+    # Cross-site cookies (Vercel frontend → Render API) require SameSite=None + Secure
+    if same_site == "none":
+        secure = True
+    domain = settings.cookie_domain.strip() or None if settings.cookie_domain else None
+    try:
+        response.set_cookie(
+            key=settings.access_cookie_name,
+            value=tokens["access_token"],
+            httponly=True,
+            secure=secure,
+            samesite=same_site,
+            max_age=settings.access_cookie_max_age_minutes * 60,
+            domain=domain,
+            path="/",
+        )
+        response.set_cookie(
+            key=settings.refresh_cookie_name,
+            value=tokens["refresh_token"],
+            httponly=True,
+            secure=secure,
+            samesite=same_site,
+            max_age=(refresh_days or settings.refresh_cookie_max_age_days) * 24 * 3600,
+            domain=domain,
+            path="/",
+        )
+    except Exception:
+        # Tokens are still returned in the JSON body for Bearer auth
+        import logging
+
+        logging.getLogger(__name__).exception("Failed to set auth cookies; continuing with body tokens")
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    domain = settings.cookie_domain or None
+    domain = settings.cookie_domain.strip() or None if settings.cookie_domain else None
     response.delete_cookie(settings.access_cookie_name, domain=domain, path="/")
     response.delete_cookie(settings.refresh_cookie_name, domain=domain, path="/")
 

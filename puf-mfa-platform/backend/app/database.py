@@ -131,7 +131,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def seed_admin() -> None:
     from app.config import settings
-    from app.services.auth_service import hash_password
+    from app.services.auth_service import hash_password, verify_password
 
     db = SessionLocal()
     try:
@@ -149,6 +149,10 @@ def seed_admin() -> None:
                 updated = True
             if existing.dob is None:
                 existing.dob = "1990-01-01"
+                updated = True
+            # Keep admin password in sync with ADMIN_PASSWORD env (fixes deploy login drift)
+            if settings.admin_password and not verify_password(settings.admin_password, existing.password_hash):
+                existing.password_hash = hash_password(settings.admin_password)
                 updated = True
             if updated:
                 db.commit()
