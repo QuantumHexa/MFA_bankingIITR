@@ -37,17 +37,19 @@ def mask_email(email: str) -> str:
 
 
 def _otp_email_bodies(otp: str) -> tuple[str, str, str]:
-    subject = "SecureVault verification code"
+    # Keep wording plain — "Bank"/promo-like phrasing from a free Gmail often hits spam filters
+    subject = "Your SecureVault login code"
     text_body = (
-        f"Your SecureVault Bank verification code is {otp}.\n\n"
-        f"Valid for {settings.otp_expire_minutes} minutes. Do not share this code.\n"
-        f"If you did not request this, you can ignore this email."
+        f"SecureVault login code: {otp}\n\n"
+        f"This code expires in {settings.otp_expire_minutes} minutes.\n"
+        f"Do not share it with anyone.\n\n"
+        f"If you did not try to sign in, you can ignore this message.\n"
     )
+    # Plain text only is usually less likely to be flagged than heavy HTML
     html_body = (
-        f"<p>Your SecureVault Bank verification code is "
-        f"<strong style=\"font-size:18px;letter-spacing:2px\">{otp}</strong>.</p>"
-        f"<p>Valid for {settings.otp_expire_minutes} minutes. Do not share this code.</p>"
-        f"<p style=\"color:#666;font-size:12px\">If you did not request this, you can ignore this email.</p>"
+        f"<p>SecureVault login code: <strong>{otp}</strong></p>"
+        f"<p>This code expires in {settings.otp_expire_minutes} minutes. Do not share it.</p>"
+        f"<p>If you did not try to sign in, ignore this message.</p>"
     )
     return subject, text_body, html_body
 
@@ -58,13 +60,24 @@ def _smtp_configured() -> bool:
 
 def _send_via_gmail_smtp(to_email: str, otp: str) -> None:
     subject, text_body, html_body = _otp_email_bodies(otp)
-    from_email = settings.otp_email_from or settings.smtp_username
+    # From must match the authenticated Gmail account or providers flag spoofing
+    from_email = (settings.otp_email_from or settings.smtp_username).strip()
+    if from_email.lower() != settings.smtp_username.strip().lower():
+        logger.warning(
+            "OTP_EMAIL_FROM (%s) differs from SMTP_USERNAME (%s); using SMTP_USERNAME to reduce spam risk",
+            from_email,
+            settings.smtp_username,
+        )
+        from_email = settings.smtp_username.strip()
     from_name = settings.otp_email_from_name or "SecureVault"
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_email}>"
     msg["To"] = to_email
+    msg["Reply-To"] = from_email
+    msg["X-Priority"] = "1"
+    msg["X-Auto-Response-Suppress"] = "All"
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
 
