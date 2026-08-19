@@ -1,6 +1,8 @@
 import logging
 import secrets
 import smtplib
+import socket
+import ssl
 import string
 from email.message import EmailMessage
 
@@ -58,6 +60,49 @@ def _smtp_configured() -> bool:
     return bool(settings.smtp_username and settings.smtp_password)
 
 
+def _create_ipv4_connection(host: str, port: int, timeout: float) -> socket.socket:
+    """Connect over IPv4 only. Docker/cloud VMs often have IPv6 with no route (errno 101)."""
+    last_err: OSError | None = None
+    for family, socktype, proto, _, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = socket.socket(family, socktype, proto)
+        sock.settimeout(timeout)
+        try:
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_err = exc
+            sock.close()
+    if last_err:
+        raise last_err
+    raise OSError(f"No IPv4 address for {host}:{port}")
+
+
+class _IPv4SMTP(smtplib.SMTP):
+    def _get_socket(self, host, port, timeout):
+        return _create_ipv4_connection(host, port, timeout)
+
+
+class _IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    def _get_socket(self, host, port, timeout):
+        sock = _create_ipv4_connection(host, port, timeout)
+        context = self.context or ssl.create_default_context()
+        return context.wrap_socket(sock, server_hostname=self._host)
+
+
+def _smtp_unreachable_hint(exc: BaseException) -> str:
+    err = str(exc)
+    if "101" in err or "unreachable" in err.lower() or "timed out" in err.lower() or "111" in err:
+        return (
+            f"{exc}. The server cannot reach {settings.smtp_host}:{settings.smtp_port}. "
+            "Render free web services block outbound SMTP (ports 25/465/587), so Gmail SMTP "
+            "cannot work there. Set SENDGRID_API_KEY + OTP_EMAIL_FROM to send OTP over HTTPS:443, "
+            "or upgrade the Render service to a paid instance."
+        )
+    return err
+
+
 def _send_via_gmail_smtp(to_email: str, otp: str) -> None:
     subject, text_body, html_body = _otp_email_bodies(otp)
     # From must match the authenticated Gmail account or providers flag spoofing
@@ -81,12 +126,39 @@ def _send_via_gmail_smtp(to_email: str, otp: str) -> None:
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
 
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
-        server.starttls()
-        server.login(settings.smtp_username, settings.smtp_password)
-        server.send_message(msg)
+    ports: list[int] = [settings.smtp_port]
+    if 587 not in ports:
+        ports.append(587)
+    if 465 not in ports:
+        ports.append(465)
 
-    logger.info("Email OTP sent via SMTP to %s", mask_email(to_email))
+    last_err: BaseException | None = None
+    for port in ports:
+        try:
+            if port == 465:
+                client: smtplib.SMTP = _IPv4SMTP_SSL(settings.smtp_host, port, timeout=20)
+            else:
+                client = _IPv4SMTP(settings.smtp_host, port, timeout=20)
+            with client as server:
+                if port != 465:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                server.login(settings.smtp_username, settings.smtp_password)
+                server.send_message(msg)
+            logger.info(
+                "Email OTP sent via SMTP %s:%s to %s",
+                settings.smtp_host,
+                port,
+                mask_email(to_email),
+            )
+            return
+        except Exception as exc:
+            last_err = exc
+            logger.warning("SMTP %s:%s failed: %s", settings.smtp_host, port, exc)
+
+    assert last_err is not None
+    raise last_err
 
 
 def _send_via_sendgrid(to_email: str, otp: str) -> None:
@@ -119,17 +191,10 @@ def _send_via_sendgrid(to_email: str, otp: str) -> None:
 
 
 def send_email_otp(email: str, otp: str) -> None:
-    """Send OTP via Gmail SMTP (preferred) or SendGrid. Falls back to console mock."""
+    """Send OTP via HTTPS mail API when set (Render-safe), else Gmail SMTP."""
     subject, text_body, _ = _otp_email_bodies(otp)
 
-    if _smtp_configured():
-        try:
-            _send_via_gmail_smtp(email, otp)
-            return
-        except Exception as exc:
-            logger.error("SMTP email OTP failed: %s", exc)
-            raise RuntimeError(f"Email OTP delivery failed: {exc}") from exc
-
+    # HTTPS first: Render free blocks SMTP 25/465/587 (errno 101).
     if settings.sendgrid_api_key and settings.otp_email_from:
         try:
             _send_via_sendgrid(email, otp)
@@ -139,6 +204,14 @@ def send_email_otp(email: str, otp: str) -> None:
         except Exception as exc:
             logger.error("SendGrid email OTP failed: %s", exc)
             raise RuntimeError(f"Email OTP delivery failed: {exc}") from exc
+
+    if _smtp_configured():
+        try:
+            _send_via_gmail_smtp(email, otp)
+            return
+        except Exception as exc:
+            logger.error("SMTP email OTP failed: %s", exc)
+            raise RuntimeError(f"Email OTP delivery failed: {_smtp_unreachable_hint(exc)}") from exc
 
     print(
         f"\n========================================\n"

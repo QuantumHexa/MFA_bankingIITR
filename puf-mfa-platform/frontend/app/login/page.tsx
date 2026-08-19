@@ -237,7 +237,13 @@ export default function LoginPage() {
       await login(res.access_token, res.refresh_token);
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e: any) {
-      setError(e instanceof ApiError ? String(e.message) : e.message || "Hardware authentication failed. Please reconnect your device.");
+      const raw = e instanceof ApiError ? String(e.message) : e?.message || "";
+      const failedFetch = /failed to fetch/i.test(raw) || e instanceof TypeError;
+      setError(
+        failedFetch
+          ? "ESP32 step could not reach the server. Use Chrome/Edge, plug in the same ESP32 that was enrolled for this account, then click Authenticate again."
+          : raw || "Hardware authentication failed. Please reconnect your device."
+      );
     } finally {
       setLoading(false);
     }

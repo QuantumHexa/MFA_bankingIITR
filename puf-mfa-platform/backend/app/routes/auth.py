@@ -675,8 +675,13 @@ def login_verify_puf_hardware(payload: HardwareVerifyRequest, request: Request, 
             _log_auth(db, user.id, "login", "puf", "failed", request, {"session_id": session.id, "error": str(exc)})
             _emit("auth_step", step="puf", status="failed", session_id=session.id)
             raise HTTPException(status_code=401, detail=str(exc))
+    elif not settings.hardware_puf_server_serial:
+        raise HTTPException(
+            status_code=400,
+            detail="ESP32 proof missing. Plug in the device, use Chrome or Edge, and click Authenticate.",
+        )
     else:
-        # Fallback to local server-driven COM port communication
+        # Lab-only: backend talks to ESP32 on HARDWARE_PUF_SERIAL_PORT
         try:
             proof_meta = esp32_mfa_bridge.authenticate_device(
                 None,
@@ -742,19 +747,21 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
         session.hardware_eph_scalar_hex = eph_scalar_bytes.hex()
         db.commit()
 
-        # Try to run hardware precheck locally if possible (as fallback)
-        try:
-            precheck = esp32_mfa_bridge.hardware_login_precheck(device.device_pubkey_hex)
-            device_status = precheck["device_status"]
-            live_pubkey_hex = precheck.get("live_pubkey_hex")
-            pubkey_match = precheck.get("pubkey_match")
-            ready_for_auth = precheck.get("ready_for_auth")
-        except Exception:
-            # Bypassed/failed local serial check (e.g. running on remote VPS)
-            device_status = "mfa_enrolled"
-            live_pubkey_hex = device.device_pubkey_hex
-            pubkey_match = True
-            ready_for_auth = True
+        # Do not open COM on the API server. That hangs Render/Windows and steals the
+        # port from Chrome Web Serial (browser shows "Failed to fetch").
+        device_status = "mfa_enrolled"
+        live_pubkey_hex = device.device_pubkey_hex
+        pubkey_match = True
+        ready_for_auth = True
+        if settings.hardware_puf_server_serial:
+            try:
+                precheck = esp32_mfa_bridge.hardware_login_precheck(device.device_pubkey_hex)
+                device_status = precheck["device_status"]
+                live_pubkey_hex = precheck.get("live_pubkey_hex")
+                pubkey_match = precheck.get("pubkey_match")
+                ready_for_auth = precheck.get("ready_for_auth")
+            except Exception:
+                pass
 
         return {
             "session_id": session.id,

@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     virtual_puf_port: int = 8765
     hardware_puf_serial_port: str = "COM3"
     hardware_puf_baud: int = 115200
+    # Server-side COM/UART (lab only). Leave false for Vercel/Render — ESP32 is on the user's USB via Web Serial.
+    hardware_puf_server_serial: bool = False
     puf_hamming_threshold: int = 5
     rsa_private_key_path: str = "server_rsa_private.pem"
 
