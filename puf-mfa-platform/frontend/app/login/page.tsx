@@ -238,10 +238,9 @@ export default function LoginPage() {
       setTimeout(() => router.push("/dashboard"), 2500);
     } catch (e: any) {
       const raw = e instanceof ApiError ? String(e.message) : e?.message || "";
-      const failedFetch = /failed to fetch/i.test(raw) || e instanceof TypeError;
       setError(
-        failedFetch
-          ? "ESP32 step could not reach the server. Use Chrome/Edge, plug in the same ESP32 that was enrolled for this account, then click Authenticate again."
+        /failed to fetch/i.test(raw)
+          ? "Could not reach Render for the ESP32 proof step. Wait for the latest deploy, then retry Authenticate with the ESP32 plugged in."
           : raw || "Hardware authentication failed. Please reconnect your device."
       );
     } finally {

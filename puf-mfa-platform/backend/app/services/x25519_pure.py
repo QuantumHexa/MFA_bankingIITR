@@ -90,6 +90,20 @@ def public_key_from_scalar(scalar_int):
     return int_to_bytes32(x25519(scalar_int, BASE_POINT))
 
 
+def scalar_to_hex(scalar_int: int) -> str:
+    """64 hex chars, little-endian 32 bytes. Do not use int.hex() (adds 0x and can exceed VARCHAR(64))."""
+    return int(scalar_int).to_bytes(32, "little").hex()
+
+
+def scalar_from_hex(hex_str: str) -> int:
+    text = (hex_str or "").strip().lower()
+    if text.startswith("0x"):
+        return int(text, 16)
+    return int.from_bytes(bytes.fromhex(text), "little")
+
+
 def shared_secret(scalar_int, peer_public_bytes):
+    if isinstance(scalar_int, (bytes, bytearray)):
+        scalar_int = int.from_bytes(scalar_int, "little")
     u = decode_u_coordinate(peer_public_bytes)
     return int_to_bytes32(x25519(scalar_int, u))

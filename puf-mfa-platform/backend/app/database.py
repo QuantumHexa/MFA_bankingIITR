@@ -65,7 +65,7 @@ class AuthSession(Base):
     otp_resend_available_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     step: Mapped[str] = mapped_column(String(30), default="password_pending")
     used: Mapped[bool] = mapped_column(Boolean, default=False)
-    hardware_eph_scalar_hex: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hardware_eph_scalar_hex: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -224,7 +224,11 @@ def _ensure_schema_columns() -> None:
             "otp_resend_available_at",
             "otp_resend_available_at TIMESTAMP" if not is_sqlite else "otp_resend_available_at DATETIME",
         )
-        add("auth_sessions", "hardware_eph_scalar_hex", "hardware_eph_scalar_hex VARCHAR(64)")
+        add("auth_sessions", "hardware_eph_scalar_hex", "hardware_eph_scalar_hex VARCHAR(128)")
+        if not is_sqlite and "hardware_eph_scalar_hex" in cols("auth_sessions"):
+            db.execute(
+                text("ALTER TABLE auth_sessions ALTER COLUMN hardware_eph_scalar_hex TYPE VARCHAR(128)")
+            )
 
         if "site_auth_phrase" in cols("users"):
             db.execute(

@@ -647,7 +647,7 @@ def login_verify_puf_hardware(payload: HardwareVerifyRequest, request: Request, 
         if not session.hardware_eph_scalar_hex:
             raise HTTPException(status_code=400, detail="Authentication session not initialized for hardware PUF")
         
-        eph_scalar = bytes.fromhex(session.hardware_eph_scalar_hex)
+        eph_scalar = x25519.scalar_from_hex(session.hardware_eph_scalar_hex)
         device_pubkey = bytes.fromhex(device.device_pubkey_hex)
         
         # Calculate shared secret
@@ -741,11 +741,14 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
         from app.services import x25519_pure as x25519
 
         # Generate X25519 ephemeral keypair for client authentication
-        eph_scalar_bytes = x25519.clamp_scalar(os.urandom(32))
-        eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_bytes)
-        
-        session.hardware_eph_scalar_hex = eph_scalar_bytes.hex()
-        db.commit()
+        eph_scalar_int = x25519.clamp_scalar(os.urandom(32))
+        eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_int)
+        session.hardware_eph_scalar_hex = x25519.scalar_to_hex(eph_scalar_int)
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to start ESP32 session: {exc}") from exc
 
         # Do not open COM on the API server. That hangs Render/Windows and steals the
         # port from Chrome Web Serial (browser shows "Failed to fetch").
