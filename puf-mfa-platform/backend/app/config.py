@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     otp_lock_minutes: int = 10
     otp_resend_cooldown_seconds: int = 30
     otp_max_sends_per_session: int = 3
+    # Set on Render to force another wipe; empty = one automatic wipe on Render this release.
+    reset_database_token: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

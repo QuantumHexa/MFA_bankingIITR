@@ -125,6 +125,13 @@ class AuthLog(Base):
     user: Mapped["User | None"] = relationship(back_populates="auth_logs")
 
 
+class AppMeta(Base):
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))
+
+
 engine = create_engine(settings.database_url, connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -180,6 +187,43 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_schema_columns()
     seed_admin()
+    apply_deploy_reset_if_needed()
+
+
+def apply_deploy_reset_if_needed() -> None:
+    """Wipe all users/sessions on Render once so the live site can be re-enrolled."""
+    import logging
+    import os
+
+    token = (settings.reset_database_token or "").strip()
+    if not token and os.environ.get("RENDER"):
+        token = "wipe-2026-08-19-esp32-reenroll"
+    if not token:
+        return
+
+    logger = logging.getLogger("app.database")
+    db = SessionLocal()
+    try:
+        row = db.get(AppMeta, "reset_token")
+        if row and row.value == token:
+            return
+        logger.warning("Wiping deploy database (users, devices, sessions, logs)")
+        db.query(AuthLog).delete()
+        db.query(RefreshToken).delete()
+        db.query(SessionCryptoState).delete()
+        db.query(SiteAuthChallenge).delete()
+        db.query(PufDevice).delete()
+        db.query(AuthSession).delete()
+        db.query(User).delete()
+        if row:
+            row.value = token
+        else:
+            db.add(AppMeta(key="reset_token", value=token))
+        db.commit()
+    finally:
+        db.close()
+    seed_admin()
+    logger.warning("Deploy database wipe complete; only admin remains")
 
 
 def _ensure_schema_columns() -> None:
