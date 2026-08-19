@@ -26,6 +26,47 @@ class TestX25519Pure(unittest.TestCase):
         secret_ba = x25519_pure.shared_secret(scalar_b, pub_a)
         self.assertEqual(secret_ab, secret_ba)
 
+    def test_scalar_hex_roundtrip_and_public_recompute(self):
+        scalar = x25519_pure.clamp_scalar(os.urandom(32))
+        pub = x25519_pure.public_key_from_scalar(scalar)
+        stored = x25519_pure.scalar_to_hex(scalar)
+        self.assertEqual(len(stored), 64)
+        self.assertFalse(stored.startswith("0x"))
+        restored = x25519_pure.scalar_from_hex(stored)
+        self.assertEqual(x25519_pure.public_key_from_scalar(restored), pub)
+
+    def test_esp32_login_proof_matches_backend_verifier(self):
+        """Server ephemeral + device identity ECDH, then HMAC over the UART transcript."""
+        device_scalar = x25519_pure.clamp_scalar(os.urandom(32))
+        device_pub = x25519_pure.public_key_from_scalar(device_scalar)
+        server_scalar = x25519_pure.clamp_scalar(os.urandom(32))
+        server_pub = x25519_pure.public_key_from_scalar(server_scalar)
+
+        shared_device = x25519_pure.shared_secret(device_scalar, server_pub)
+        shared_server = x25519_pure.shared_secret(
+            x25519_pure.scalar_from_hex(x25519_pure.scalar_to_hex(server_scalar)),
+            device_pub,
+        )
+        self.assertEqual(shared_device, shared_server)
+
+        login_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        customer_id = "11111111-2222-3333-4444-555555555555"
+        nonce = os.urandom(16)
+        proof = esp32_mfa_bridge._compute_login_proof(shared_device, login_id, customer_id, nonce)
+        esp32_mfa_bridge._verify_login_proof(shared_server, login_id, customer_id, nonce, proof)
+        self.assertEqual(len(proof.hex()), 64)
+        self.assertEqual(len(nonce.hex()), 32)
+
+    def test_hmac_matches_transcript_bytes(self):
+        key = os.urandom(32)
+        nonce = os.urandom(16)
+        std = esp32_mfa_bridge._compute_login_proof(key, "login", "cust", nonce)
+        transcript = b"esp32c6-mfa-login-proof-v1|login|cust|" + nonce
+        import hashlib
+        import hmac
+
+        self.assertEqual(hmac.new(key, transcript, hashlib.sha256).digest(), std)
+
 
 class TestProtocolParsing(unittest.TestCase):
     def test_parse_status(self):

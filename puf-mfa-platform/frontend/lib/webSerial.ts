@@ -157,7 +157,7 @@ export class WebSerialBridge {
     nonceHex: string
   ): Promise<string> {
     // Expected response format: MFA:PROOF:OK:<proof_hex>
-    const authLine = `MFA:AUTH:${loginId}:${customerId}:${ephPubHex}:${nonceHex}\n`;
+    const authLine = `MFA:AUTH:${loginId}:${customerId}:${ephPubHex.toLowerCase()}:${nonceHex.toLowerCase()}\n`;
     // Increase timeout to 30 seconds for PUF key derivation and crypto operations
     const line = await this.sendAndReceive(authLine, ["MFA:PROOF:OK:"], 30000);
     return line.substring("MFA:PROOF:OK:".length);

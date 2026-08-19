@@ -203,11 +203,8 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      let currentPufData = pufData;
-      if (!currentPufData) {
-        currentPufData = await api.pufRead(sessionId);
-        setPufData(currentPufData);
-      }
+      const currentPufData = await api.pufRead(sessionId);
+      setPufData(currentPufData);
 
       if (!currentPufData.eph_public_hex || !currentPufData.customer_id) {
         throw new Error("Missing security parameters. Please try again.");

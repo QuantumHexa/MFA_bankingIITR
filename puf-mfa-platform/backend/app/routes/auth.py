@@ -506,6 +506,10 @@ def login_verify_otp(payload: OtpVerifyRequest, request: Request, response: Resp
     session.otp_hash = None
     session.otp_attempts = 0
     session.otp_locked_until = None
+    if user.puf_enabled and user.puf_mode == "hardware" and not session.hardware_eph_scalar_hex:
+        from app.services import x25519_pure as x25519
+
+        session.hardware_eph_scalar_hex = x25519.scalar_to_hex(x25519.clamp_scalar(os.urandom(32)))
     _log_auth(db, user.id, "login", "email_otp", "success", request)
     _emit("auth_step", step="email_otp", status="success", session_id=session.id)
 
@@ -649,18 +653,12 @@ def login_verify_puf_hardware(payload: HardwareVerifyRequest, request: Request, 
         
         eph_scalar = x25519.scalar_from_hex(session.hardware_eph_scalar_hex)
         device_pubkey = bytes.fromhex(device.device_pubkey_hex)
-        
-        # Calculate shared secret
         shared = x25519.shared_secret(eph_scalar, device_pubkey)
-        
-        # Verify the proof
-        proof = bytes.fromhex(payload.proof_hex)
+        proof = bytes.fromhex(payload.proof_hex.strip())
+        nonce_hex = (session.nonce or "").lower()[:32]
         try:
-            transcript = esp32_mfa_bridge._build_transcript(session.id, user.id, bytes.fromhex(session.nonce))
-            expected = hmac.new(shared, transcript, hashlib.sha256).digest()
-            if not hmac.compare_digest(expected, proof):
-                raise ValueError("MFA device proof verification FAILED")
-            
+            nonce_bytes = bytes.fromhex(nonce_hex)
+            esp32_mfa_bridge._verify_login_proof(shared, session.id, user.id, nonce_bytes, proof)
             proof_meta = {
                 "verified": True,
                 "device_status": "mfa_enrolled",
@@ -740,15 +738,25 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
         from app.services import esp32_mfa_bridge
         from app.services import x25519_pure as x25519
 
-        # Generate X25519 ephemeral keypair for client authentication
-        eph_scalar_int = x25519.clamp_scalar(os.urandom(32))
-        eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_int)
-        session.hardware_eph_scalar_hex = x25519.scalar_to_hex(eph_scalar_int)
-        try:
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to start ESP32 session: {exc}") from exc
+        # Reuse the session ephemeral key. React Strict Mode and the login UI both
+        # call puf-read; rotating the scalar here makes the ESP32 sign key A while
+        # Render verifies key B ("MFA device proof verification FAILED").
+        if session.hardware_eph_scalar_hex:
+            eph_scalar_int = x25519.scalar_from_hex(session.hardware_eph_scalar_hex)
+            eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_int)
+        else:
+            eph_scalar_int = x25519.clamp_scalar(os.urandom(32))
+            eph_public_bytes = x25519.public_key_from_scalar(eph_scalar_int)
+            session.hardware_eph_scalar_hex = x25519.scalar_to_hex(eph_scalar_int)
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=f"Failed to start ESP32 session: {exc}") from exc
+
+        mfa_nonce_hex = (session.nonce or "").lower()
+        if len(mfa_nonce_hex) != 32:
+            raise HTTPException(status_code=500, detail="ESP32 nonce must be 16 bytes (32 hex chars)")
 
         # Do not open COM on the API server. That hangs Render/Windows and steals the
         # port from Chrome Web Serial (browser shows "Failed to fetch").
@@ -776,7 +784,7 @@ def login_puf_read(payload: SessionRequest, db: DbSession) -> dict:
             "stored_pubkey_hex": device.device_pubkey_hex,
             "pubkey_match": pubkey_match,
             "ready_for_auth": ready_for_auth,
-            "nonce": session.nonce,
+            "nonce": mfa_nonce_hex,
             "eph_public_hex": eph_public_bytes.hex(),
             "customer_id": user.id,
             "message": "Plug ESP32-C6 into your USB port and click authenticate",
